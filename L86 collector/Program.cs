@@ -20,6 +20,8 @@ namespace L86_collector
 {
     class Program
     {
+        private const string SoftwareVersion = "V1";
+
         static bool running = false;
         enum FixQuality
         {
@@ -110,24 +112,28 @@ namespace L86_collector
             public List<string> raw = new List<string>();
         }
 
-        class NmeaDeviceReader
+        class NmeaTestUnit
         {
             private bool init = false;
             private NmeaBlock nmeaBlock = null;
             private List<SatelliteData> satellitesGPS = null;
             private List<SatelliteData> satellitesGLONASS = null;
             private int GSAindex = 0;
-            private readonly ConcurrentQueue<NmeaBlock> queue;
             private readonly SerialPortDevice port;
             private readonly string rawFile;
+            public readonly string designation;
+            public ConcurrentQueue<NmeaBlock> queue;
+            public readonly string portNum;
 
-            public NmeaDeviceReader(string portNum, ConcurrentQueue<NmeaBlock> queue_, string rawFile)
+            public NmeaTestUnit(string portNum, string rawFile, string designation)
             {
-                queue = queue_;
+                this.portNum = portNum;
+                queue = new ConcurrentQueue<NmeaBlock>();
                 port = new SerialPortDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One));
                 port.MessageReceived += NmeaMessageReceived;
                 port.OpenAsync();
                 this.rawFile = rawFile;
+                this.designation = designation;
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
@@ -261,22 +267,25 @@ namespace L86_collector
             }
         }
 
-        static ConcurrentQueue<NmeaBlock> queue_ref = new ConcurrentQueue<NmeaBlock>();
-        static ConcurrentQueue<NmeaBlock> queue_1 = new ConcurrentQueue<NmeaBlock>();
+        static NmeaTestUnit[] nmeaTestUnits;
+
         static void Main(string[] args)
         {
+            #region start
             SetConsoleCtrlHandler(terminationEventHandler, true);
 
-            Console.Write("ref COM: ");
-            string com_ref_in = Console.ReadLine();
-            Console.Write("COM 1: ");
-            string com_1_in = Console.ReadLine();
+
             Console.Write("Label of measurement: ");
             string lable = Console.ReadLine();
             Console.Write("Work directory: ");
             string folder = /*Console.ReadLine();*/ @"C:\Users\Adam\Desktop\GND Size Study\";
             string workFolder = Path.Combine(folder, lable) + @"\";
-
+            if (Directory.Exists(workFolder))
+            {
+                Console.WriteLine("A measurement with this lable already exists in this directory!");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
             try
             {
                 Directory.CreateDirectory(workFolder);
@@ -288,24 +297,138 @@ namespace L86_collector
                 Environment.Exit(0);
             }
 
+
+            List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
+            Console.Write("reference device designation: ");
+            string ref_des = Console.ReadLine();
+            Console.Write("reference device COM port number: ");
+            string ref_com = Console.ReadLine();
             try
             {
-                if (!File.Exists(workFolder + lable + ".dev"))
-                    using (StreamWriter write = new StreamWriter(workFolder + lable + ".dev", false))
-                        write.WriteLine("time (UTC)\toffset\tPDOP\tHDOP\tVDOP\tsatelliteInView\tsatelliteUsed\tsatelliteInViewGPS\tsatelliteUsedGPS\tsatelliteInViewGLONASS\tsatelliteUsedGLONASS\tmaxSnr\tmaxSnrGPS\tmaxSnrGLONASS\tavrSnr\tavrSnrGPS\tavrSnrGLONASS\tSnrDevUsed\tSnrDevView");
+                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", ref_des));
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("COM port error!");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
+            do
+            {
+                Console.Write("device designation: ");
+                string des = Console.ReadLine();
+                Console.Write("device COM port number: ");
+                string comNum = Console.ReadLine();
+                try
+                {
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", des));
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("COM port error!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                }
 
-                if (!File.Exists(workFolder + lable + ".dat"))
-                    using (StreamWriter write = new StreamWriter(workFolder + lable + ".dat", false))
-                        write.WriteLine("time (UTC)\tref PDOP\tDUT_1 PDOP\tref HDOP\tDUT_1 HDOP\tref VDOP\tDUT_1 VDOP\tref satelliteInView\tDUT_1 satelliteInView\tref satelliteUsed\tDUT_1 satelliteUsed\tref satelliteInViewGPS\tDUT_1 satelliteInViewGPS\tref satelliteUsedGPS\tDUT_1 satelliteUsedGPS\tref satelliteInViewGLONASS\tDUT_1 satelliteInViewGLONASS\tref satelliteUsedGLONASS\tDUT_1 satelliteUsedGLONASS\tref maxSnr\tDUT_1 maxSnr\tref maxSnrGPS\tDUT_1 maxSnrGPS\tref maxSnrGLONASS\tDUT_1 maxSnrGLONASS\tref avrSnr\tDUT_1 avrSnr\tref avrSnrGPS\tDUT_1 avrSnrGPS\tref avrSnrGLONASS\tDUT_1 avrSnrGLONASS");
+                Console.WriteLine("Do you want to add an onther device? (Y/N)");
+            } while (Console.ReadLine().ToLower() == "y");
+            nmeaTestUnits = nmeaTestUnitsList.ToArray();
 
-                if (!File.Exists(workFolder + lable + ".err"))
-                    using (StreamWriter write = new StreamWriter(workFolder + lable + ".err", false))
-                        write.WriteLine("time (UTC)\tdevice\ttype");
+            try
+            {
+                using (FileStream setupFile = File.Open(workFolder + lable + @"_Setup.xml", FileMode.Create))
+                using (StreamWriter twriter = new StreamWriter(setupFile, Encoding.UTF8))
+                using (XmlTextWriter writer = new XmlTextWriter(twriter))
+                {
+                    writer.Formatting = Formatting.Indented;
+                    writer.IndentChar = '\t';
+                    writer.Indentation = 1;
 
-                if (!File.Exists(workFolder + lable + ".loc"))
-                    using (StreamWriter write = new StreamWriter(workFolder + lable + ".loc", false))
-                        write.WriteLine("time (UTC)\treference latitude\treference longitude\treference altitude\tDUT_1 latitude\tDUT_1 longitude\tDUT_1 altitude");
+                    writer.WriteStartElement("setup");
+                    {
+                        writer.WriteStartElement("DAQ_Software");
+                        {
+                            writer.WriteStartElement("version");
+                            {
+                                writer.WriteString(SoftwareVersion);
+                            }
+                            writer.WriteEndElement();
 
+                            writer.WriteStartElement("buildeType");
+                            {
+#if DEBUG
+                                writer.WriteString("DEBUG");
+#else
+                                writer.WriteString("RELEASE");
+#endif
+                            }
+                            writer.WriteEndElement();
+
+                            writer.WriteStartElement("hash");
+                            {
+                                writer.WriteString(GetMD5());
+                            }
+                            writer.WriteEndElement();
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("devices");
+                        {
+                            writer.WriteStartElement("device");
+                            {
+                                writer.WriteAttributeString("role", "reference");
+                                writer.WriteAttributeString("type", "NMEA Test Unit");
+                                writer.WriteStartElement("designation");
+                                {
+                                    writer.WriteString(nmeaTestUnits[0].designation);
+                                }
+                                writer.WriteEndElement();
+
+                                writer.WriteStartElement("device_ID");
+                                {
+                                    writer.WriteString("0");
+                                }
+                                writer.WriteEndElement();
+
+                                writer.WriteStartElement("COM_portNumber");
+                                {
+                                    writer.WriteString(nmeaTestUnits[0].portNum);
+                                }
+                                writer.WriteEndElement();
+                            }
+                            writer.WriteEndElement();
+
+                            for (int i = 1; i < nmeaTestUnits.Length; i++)
+                            {
+                                writer.WriteStartElement("device");
+                                {
+                                    writer.WriteAttributeString("role", "DUT");
+                                    writer.WriteAttributeString("type", "NMEA Test Unit");
+                                    writer.WriteStartElement("designation");
+                                    {
+                                        writer.WriteString(nmeaTestUnits[i].designation);
+                                    }
+                                    writer.WriteEndElement();
+
+                                    writer.WriteStartElement("device_ID");
+                                    {
+                                        writer.WriteString(i.ToString());
+                                    }
+                                    writer.WriteEndElement();
+
+                                    writer.WriteStartElement("COM_portNumber");
+                                    {
+                                        writer.WriteString(nmeaTestUnits[i].portNum);
+                                    }
+                                    writer.WriteEndElement();
+                                }
+                                writer.WriteEndElement();
+                            }
+                        }
+                        writer.WriteEndElement();
+                    }
+                    writer.WriteEndElement();
+                }
             }
             catch (Exception)
             {
@@ -314,263 +437,384 @@ namespace L86_collector
                 Environment.Exit(0);
             }
 
-            NmeaDeviceReader reference, DUT_1;
             try
             {
-                reference = new NmeaDeviceReader(com_ref_in, queue_ref, workFolder + lable + "_reference.raw");
-                DUT_1 = new NmeaDeviceReader(com_1_in, queue_1, workFolder + lable + "_DUT_1.raw");
+                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dev", false))
+                {
+                    write.Write("time (UTC)");
+
+                    for (int i = 1; i < nmeaTestUnits.Length; i++)
+                    {
+                        write.Write("\t{0}_offset\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS\t{0}_SnrDevView\t{0}_SnrDevUsed", nmeaTestUnits[i].designation);
+                    }
+                    write.WriteLine();
+                }
             }
             catch (Exception)
             {
-                Console.WriteLine("COM port error!");
+                Console.WriteLine(".dev file init error!");
                 Console.ReadLine();
                 Environment.Exit(0);
             }
 
-            running = true;
+            try
+            {
+                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dat", false))
+                {
+                    write.Write("time (UTC)");
 
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        write.Write("\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS", nmeaTestUnits[i].designation);
+                    }
+                    write.WriteLine();
+                }
+            }
+            catch (Exception)
+            {
+                Console.WriteLine(".dat file init error!");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
+
+            try
+            {
+                using (StreamWriter write = new StreamWriter(workFolder + lable + ".err", false))
+                    write.WriteLine("time (UTC)\tdevice\ttype\tcode");
+            }
+            catch (Exception)
+            {
+                Console.WriteLine(".err file init error!");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
+
+            try
+            {
+                using (StreamWriter write = new StreamWriter(workFolder + lable + ".loc", false))
+                {
+                    write.Write("time (UTC)");
+
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        write.Write("\t{0}_latitude\t{0}_longitude\t{0}_altitude", nmeaTestUnits[i].designation);
+                    }
+                    write.WriteLine();
+                }
+            }
+            catch (Exception)
+            {
+                Console.WriteLine(".loc file init error!");
+                Console.ReadLine();
+                Environment.Exit(0);
+            }
+
+
+            //empty queues
+            foreach (NmeaTestUnit unit in nmeaTestUnits)
+            {
+                NmeaBlock trash;
+                while (!unit.queue.IsEmpty)
+                    while (!unit.queue.TryDequeue(out trash))
+                        Task.Delay(1).Wait();
+            }
+            running = true;
             DateTime startTime = DateTime.UtcNow;
+            #endregion
+
+            #region new
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
                 Console.Clear();
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
-                NmeaBlock nmeaBlock_ref, nmeaBlock_1;
-                SpinWait.SpinUntil(() => queue_ref.Count > 0);
-                while (!queue_ref.TryPeek(out nmeaBlock_ref))
-                    Task.Delay(1).Wait();
-                SpinWait.SpinUntil(() => queue_1.Count > 0);
-                while (!queue_1.TryPeek(out nmeaBlock_1))
-                    Task.Delay(1).Wait();
 
-                Deviance deviance;
-                if (nmeaBlock_ref.time == nmeaBlock_1.time)
+                NmeaBlock[] currentNmeaBlocks = new NmeaBlock[nmeaTestUnits.Length];
+                DateTime currentTime = DateTime.UtcNow.AddYears(1);
+                for (int j = 0; j < nmeaTestUnits.Length; j++)
                 {
-                    while (!queue_ref.TryDequeue(out nmeaBlock_ref))
+                    SpinWait.SpinUntil(() => nmeaTestUnits[j].queue.Count > 0);
+                    while (!nmeaTestUnits[j].queue.TryPeek(out currentNmeaBlocks[j]))
                         Task.Delay(1).Wait();
-                    while (!queue_1.TryDequeue(out nmeaBlock_1))
-                        Task.Delay(1).Wait();
-
-                    deviance = new Deviance(nmeaBlock_ref, nmeaBlock_1);
+                    currentTime = (currentTime > currentNmeaBlocks[j].time) ? currentNmeaBlocks[j].time : currentTime;
                 }
-                else if (nmeaBlock_ref.time < nmeaBlock_1.time)
+                NmeaBlock refBlock = currentNmeaBlocks[0];
+
+                string datF, devF, locF;
+                datF = devF = locF = currentTime.ToString("yyyy/MM/dd HH:mm:ss");
+                List<string> errF = new List<string>();
+                StringBuilder logF = new StringBuilder();
+                StringWriter logFWriter = new StringWriter(logF);
+                XmlTextWriter logFXmlWriter = new XmlTextWriter(logFWriter);
+                logFXmlWriter.Formatting = Formatting.Indented;
+                logFXmlWriter.IndentChar = '\t';
+                logFXmlWriter.Indentation = 1;
+
+                logFXmlWriter.WriteStartElement("dataPoint");
                 {
-                    while (!queue_ref.TryDequeue(out nmeaBlock_ref))
-                        Task.Delay(1).Wait();
-
-                    deviance = new Deviance(nmeaBlock_ref.time, Device.reference);
-                }
-                else
-                {
-                    while (!queue_1.TryDequeue(out nmeaBlock_1))
-                        Task.Delay(1).Wait();
-
-                    deviance = new Deviance(nmeaBlock_1.time, Device.DUT_1);
-                }
-
-                bool devWritten = false, logWritten = false, datWritten = false, locWritten = false, errWritten = false, DEB_EX;
-
-                for (int j = 0; DEB_EX = (!devWritten || !logWritten || !datWritten || !locWritten || !errWritten); j++)
-                {
-                    if (j > 1000)
+                    logFXmlWriter.WriteStartElement("time");
                     {
-                        Console.WriteLine("The log files cannot be accessed!");
-                        Console.ReadLine();
+                        logFXmlWriter.WriteAttributeString("zone", "UTC");
+
+                        logFXmlWriter.WriteString(currentTime.ToString("yyyy/MM/dd HH:mm:ss"));
                     }
-                    if (deviance.valid)
+                    logFXmlWriter.WriteEndElement();
+
+                    bool refValid = refBlock.valid && (refBlock.time == currentTime) && (refBlock.fixType == FixType.Fix3D);
+                    if (!refValid)
                     {
-                        errWritten = true;
-                        try
+                        string errors = "REF";
+                        int code = 1 << 4;
+                        if (refBlock.time != currentTime) //missing
                         {
-                            if (!devWritten)
-                            {
-                                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dev", true))
-                                {
-                                    write.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}\t{15}\t{16}\t{17}\t{18}", deviance.time.ToString("yyyy/MM/dd HH:mm:ss"),
-                                        deviance.offset.ToString("F4"),
-                                        deviance.PDOP.ToString("F4"),
-                                        deviance.HDOP.ToString("F4"),
-                                        deviance.VDOP.ToString("F4"),
-                                        deviance.satelliteInView.ToString("F4"),
-                                        deviance.satelliteUsed.ToString("F4"),
-                                        deviance.satelliteInViewGPS.ToString("F4"),
-                                        deviance.satelliteUsedGPS.ToString("F4"),
-                                        deviance.satelliteInViewGLONASS.ToString("F4"),
-                                        deviance.satelliteUsedGLONASS.ToString("F4"),
-                                        deviance.maxSnr.ToString("F4"),
-                                        deviance.maxSnrGPS.ToString("F4"),
-                                        deviance.maxSnrGLONASS.ToString("F4"),
-                                        deviance.avrSnr.ToString("F4"),
-                                        deviance.avrSnrGPS.ToString("F4"),
-                                        deviance.avrSnrGLONASS.ToString("F4"),
-                                        deviance.SnrDevUsed.ToString("F4"),
-                                        deviance.SnrDevView.ToString("F4"));
-                                }
-                                devWritten = true;
-                            }
-
-                            if (!datWritten)
-                            {
-                                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dat", true))
-                                {
-                                    write.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}\t{15}\t{16}\t{17}\t{18}\t{19}\t{20}\t{21}\t{22}\t{23}\t{24}\t{25}\t{26}\t{27}\t{28}\t{29}\t{30}", deviance.time.ToString("yyyy/MM/dd HH:mm:ss"),
-                                        nmeaBlock_ref.PDOP.ToString("F4"),
-                                        nmeaBlock_1.PDOP.ToString("F4"),
-                                        nmeaBlock_ref.HDOP.ToString("F4"),
-                                        nmeaBlock_1.HDOP.ToString("F4"),
-                                        nmeaBlock_ref.VDOP.ToString("F4"),
-                                        nmeaBlock_1.VDOP.ToString("F4"),
-                                        nmeaBlock_ref.numberOfSatellitesInView.ToString(),
-                                        nmeaBlock_1.numberOfSatellitesInView.ToString(),
-                                        nmeaBlock_ref.numberOfTrackedSatellites.ToString(),
-                                        nmeaBlock_1.numberOfTrackedSatellites.ToString(),
-                                        nmeaBlock_ref.numberOfSatellitesInViewGPS.ToString(),
-                                        nmeaBlock_1.numberOfSatellitesInViewGPS.ToString(),
-                                        nmeaBlock_ref.numberOfUsedSatellitesGPS.ToString(),
-                                        nmeaBlock_1.numberOfUsedSatellitesGPS.ToString(),
-                                        nmeaBlock_ref.numberOfSatellitesInViewGLONASS.ToString(),
-                                        nmeaBlock_1.numberOfSatellitesInViewGLONASS.ToString(),
-                                        nmeaBlock_ref.numberOfUsedSatellitesGLONASS.ToString(),
-                                        nmeaBlock_1.numberOfUsedSatellitesGLONASS.ToString(),
-                                        nmeaBlock_ref.maxSNR.ToString("F4"),
-                                        nmeaBlock_1.maxSNR.ToString("F4"),
-                                        nmeaBlock_ref.maxSnrGPS.ToString("F4"),
-                                        nmeaBlock_1.maxSnrGPS.ToString("F4"),
-                                        nmeaBlock_ref.maxSnrGLONASS.ToString("F4"),
-                                        nmeaBlock_1.maxSnrGLONASS.ToString("F4"),
-                                        nmeaBlock_ref.avrSnr.ToString("F4"),
-                                        nmeaBlock_1.avrSnr.ToString("F4"),
-                                        nmeaBlock_ref.avrSnrGPS.ToString("F4"),
-                                        nmeaBlock_1.avrSnrGPS.ToString("F4"),
-                                        nmeaBlock_ref.avrSnrGLONASS.ToString("F4"),
-                                        nmeaBlock_1.avrSnrGLONASS.ToString("F4"));
-                                }
-                                datWritten = true;
-                            }
-
-                            if (!locWritten)
-                            {
-                                using (StreamWriter write = new StreamWriter(workFolder + lable + ".loc", true))
-                                {
-                                    write.WriteLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}", deviance.time.ToString("yyyy/MM/dd HH:mm:ss"),
-                                        nmeaBlock_ref.coordinates.Latitude,
-                                        nmeaBlock_ref.coordinates.Longitude,
-                                        nmeaBlock_ref.coordinates.Altitude,
-                                        nmeaBlock_1.coordinates.Latitude,
-                                        nmeaBlock_1.coordinates.Longitude,
-                                        nmeaBlock_1.coordinates.Altitude);
-                                }
-                                locWritten = true;
-                            }
+                            errors += ", missing";
+                            code += 1 << 3;
                         }
-                        catch (Exception)
+                        else
                         {
-                            Task.Delay(10).Wait();
+                            if (!refBlock.valid) //invalid
+                            {
+                                errors += ", invalid";
+                                code += 1 << 2;
+                            }
+                            else //no Fix3D
+                            {
+                                errors += ", " + (refBlock.fixType == FixType.Fix2D ? "Fix2D" : "noFix");
+                                code += 1 << (refBlock.fixType == FixType.Fix2D ? 1 : 0);
+                            }
+                            while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
+                                Task.Delay(1).Wait();
                         }
+                        errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
+                        datF = stringMaker("\t", datF, (refBlock.fixType != FixType.Fix2D) ? datFileString(refBlock) : datFileString());
+                        locF = stringMaker("\t", locF, (refBlock.fixType == FixType.Fix2D) ? locFileString(refBlock) : locFileString());
+                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0);
                     }
                     else
                     {
-                        devWritten = datWritten = locWritten = true;
-                        if (!errWritten)
-                        {
-                            try
-                            {
-                                using (StreamWriter write = new StreamWriter(workFolder + lable + ".err", true))
-                                {
-                                    string device;
-                                    switch (deviance.device)
-                                    {
-                                        case Device.reference:
-                                            device = "reference";
-                                            break;
-                                        case Device.DUT_1:
-                                            device = "DUT_1";
-                                            break;
-                                        default:
-                                            throw new Exception("non-existent device");
-                                            break;
-                                    }
-                                    string type;
-                                    switch (deviance.type)
-                                    {
-                                        case Type.invalid:
-                                            type = "invalid";
-                                            break;
-                                        case Type.mismatch:
-                                            type = "mismatch";
-                                            break;
-                                        default:
-                                            throw new Exception("non-existent type");
-                                            break;
-                                    }
-                                    write.WriteLine("{0}\t{1}\t{2}", deviance.time.ToString("yyyy/MM/dd HH:mm:ss"), device, type);
-                                }
-                                errWritten = true;
-                            }
-                            catch (Exception)
-                            {
-                                Task.Delay(10).Wait();
-                            }
-                        }
+                        while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
+                            Task.Delay(1).Wait();
+                        datF = stringMaker("\t", datF, datFileString(refBlock));
+                        locF = stringMaker("\t", locF, locFileString(refBlock));
+                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0);
                     }
-
-                    if (!logWritten)
+                    for (int j = 1; j < nmeaTestUnits.Length; j++)
                     {
-                        try
+                        NmeaBlock block = currentNmeaBlocks[j];
+                        if (!block.valid || (block.time != currentTime) || (block.fixType != FixType.Fix3D))
                         {
-                            using (FileStream logFile = File.Open(workFolder + lable + ".log", FileMode.Append))
-                            using (StreamWriter twriter = new StreamWriter(logFile, Encoding.UTF8))
-                            using (XmlTextWriter writer = new XmlTextWriter(twriter))
+                            string errorStr;
+                            int code;
+                            if (block.time != currentTime) //missing
                             {
-                                writer.Formatting = Formatting.Indented;
-                                writer.IndentChar = '\t';
-                                writer.Indentation = 1;
-
-                                writer.WriteStartElement("dataPoint");
-                                {
-                                    writer.WriteStartElement("time");
-                                    {
-                                        writer.WriteAttributeString("zone", "UTC");
-                                        if (!deviance.valid && deviance.type == Type.mismatch && deviance.device == Device.DUT_1)
-                                            writer.WriteString(nmeaBlock_1.time.ToString("yyyy/MM/dd HH:mm:ss"));
-                                        else
-                                            writer.WriteString(nmeaBlock_ref.time.ToString("yyyy/MM/dd HH:mm:ss"));
-                                    }
-                                    writer.WriteEndElement();
-
-                                    if (!(!deviance.valid && deviance.type == Type.mismatch && deviance.device == Device.DUT_1))
-                                    {
-                                        blockXmler(nmeaBlock_ref, writer, "reference", 0);
-                                    }
-
-                                    if (!(!deviance.valid && deviance.type == Type.mismatch && deviance.device == Device.reference))
-                                    {
-                                        blockXmler(nmeaBlock_1, writer, "DUT_1", 1);
-                                    }
-                                }
-                                writer.WriteEndElement();
-
-                                writer.Flush();
-                                twriter.WriteLine("\r\n");
+                                errorStr = "missing";
+                                code = 1 << 3;
                             }
-                            logWritten = true;
+                            else
+                            {
+                                if (!block.valid) //invalid
+                                {
+                                    errorStr = "invalid";
+                                    code = 1 << 2;
+                                }
+                                else //no Fix3D
+                                {
+                                    errorStr = (block.fixType == FixType.Fix2D ? "Fix2D" : "noFix");
+                                    code = 1 << (block.fixType == FixType.Fix2D ? 1 : 0);
+                                }
+                                while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
+                                    Task.Delay(1).Wait();
+                            }
+                            errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(5, '0')));
+                            datF = stringMaker("\t", datF, (block.fixType != FixType.Fix2D) ? datFileString(block) : datFileString());
+                            locF = stringMaker("\t", locF, (block.fixType == FixType.Fix2D) ? locFileString(block) : locFileString());
+                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j);
                         }
-                        catch (Exception)
+                        else
                         {
-                            Task.Delay(10).Wait();
+                            while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
+                                Task.Delay(1).Wait();
+                            datF = stringMaker("\t", datF, datFileString(block));
+                            locF = stringMaker("\t", locF, locFileString(block));
+                            devF = stringMaker("\t", devF, refValid ? devFileString(refBlock, currentNmeaBlocks[j]) : devFileString());
+                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j);
                         }
+
                     }
                 }
-
+                logFXmlWriter.WriteEndElement();
+                logFXmlWriter.Flush();
+                logFWriter.WriteLine();
+                logFWriter.Flush();
+                try
+                {
+                    writeToLogFile(devF + "\r\n", workFolder + lable + ".dev", true);
+                    writeToLogFile(datF + "\r\n", workFolder + lable + ".dat", true);
+                    writeToLogFile(locF + "\r\n", workFolder + lable + ".loc", true);
+                    writeToLogFile(errF, workFolder + lable + ".err", true);
+                    writeToLogFile(logF.ToString(), workFolder + lable + ".log", true);
+                }
+                catch (Exception e)
+                {
+                    if (e.Message == "writeToLogFile failed")
+                    {
+                        Console.WriteLine("The log files cannot be accessed.");
+                        Console.ReadLine();
+                    }
+                    else
+                        throw e;
+                }
             }
-
+            #endregion
         }
 
-        static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceName, int deviceID)
+        static string datFileString(NmeaBlock nmeaBlock)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.AppendFormat("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}",
+                                        nmeaBlock.PDOP.ToString("F4"),
+                                        nmeaBlock.HDOP.ToString("F4"),
+                                        nmeaBlock.VDOP.ToString("F4"),
+                                        nmeaBlock.numberOfSatellitesInView.ToString(),
+                                        nmeaBlock.numberOfSatellitesInViewGPS.ToString(),
+                                        nmeaBlock.numberOfSatellitesInViewGLONASS.ToString(),
+                                        nmeaBlock.numberOfTrackedSatellites.ToString(),
+                                        nmeaBlock.numberOfUsedSatellitesGPS.ToString(),
+                                        nmeaBlock.numberOfUsedSatellitesGLONASS.ToString(),
+                                        nmeaBlock.maxSNR.ToString("F4"),
+                                        nmeaBlock.maxSnrGPS.ToString("F4"),
+                                        nmeaBlock.maxSnrGLONASS.ToString("F4"),
+                                        nmeaBlock.avrSnr.ToString("F4"),
+                                        nmeaBlock.avrSnrGPS.ToString("F4"),
+                                        nmeaBlock.avrSnrGLONASS.ToString("F4")
+                                        );
+
+            return builder.ToString();
+        }
+        static string datFileString()
+        {
+            return "-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-";
+        }
+
+        static string locFileString(NmeaBlock nmeaBlock)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.AppendFormat("{0}\t{1}\t{2}",
+                                        nmeaBlock.coordinates.Latitude,
+                                        nmeaBlock.coordinates.Longitude,
+                                        nmeaBlock.coordinates.Altitude
+                                        );
+
+            return builder.ToString();
+        }
+        static string locFileString()
+        {
+            return "-\t-\t-";
+        }
+
+        static string devFileString(NmeaBlock refNmeaBlock, NmeaBlock dutNmeaBlock)
+        {
+            Deviance dev = new Deviance(refNmeaBlock, dutNmeaBlock);
+
+            StringBuilder builder = new StringBuilder();
+            builder.AppendFormat("{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}\t{10}\t{11}\t{12}\t{13}\t{14}\t{15}\t{16}\t{17}",
+                dev.offset,
+                dev.PDOP,
+                dev.HDOP,
+                dev.VDOP,
+                dev.satelliteInView,
+                dev.satelliteInViewGPS,
+                dev.satelliteInViewGLONASS,
+                dev.satelliteUsed,
+                dev.satelliteUsedGPS,
+                dev.satelliteUsedGLONASS,
+                dev.maxSnr,
+                dev.maxSnrGPS,
+                dev.maxSnrGLONASS,
+                dev.avrSnr,
+                dev.avrSnrGPS,
+                dev.avrSnrGLONASS,
+                dev.SnrDevView,
+                dev.SnrDevUsed
+                );
+
+            return builder.ToString();
+        }
+        static string devFileString()
+        {
+            return "-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-";
+        }
+
+        static string stringMaker(string separator, params string[] strings)
+        {
+            return String.Join(separator, strings);
+        }
+
+        static void writeToLogFile(string text, string fileName, bool append)
+        {
+            for (int i = 0; i < 6000; i++)
+            {
+                try
+                {
+                    using (StreamWriter write = new StreamWriter(fileName, append))
+                    {
+                        write.Write(text);
+                    }
+                    return;
+                }
+                catch (Exception)
+                {
+                    Task.Delay(10).Wait();
+                }
+            }
+            throw new Exception("writeToLogFile failed");
+        }
+        static void writeToLogFile(string[] texts, string fileName, bool append)
+        {
+            for (int i = 0; i < 6000; i++)
+            {
+                try
+                {
+                    using (StreamWriter write = new StreamWriter(fileName, append))
+                    {
+                        write.WriteLine(String.Join("\r\n", texts));
+                    }
+                    return;
+                }
+                catch (Exception)
+                {
+                    Task.Delay(10).Wait();
+                }
+            }
+            throw new Exception("writeToLogFile failed");
+        }
+
+        static void writeToLogFile(List<string> texts, string fileName, bool append)
+        {
+            for (int i = 0; i < 6000; i++)
+            {
+                try
+                {
+                    using (StreamWriter write = new StreamWriter(fileName, append))
+                    {
+                        write.WriteLine(String.Join("\r\n", texts));
+                    }
+                    return;
+                }
+                catch (Exception)
+                {
+                    Task.Delay(10).Wait();
+                }
+            }
+            throw new Exception("writeToLogFile failed");
+        }
+
+        static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID)
         {
             writer.WriteStartElement("receiver");
             {
-                writer.WriteAttributeString("designation", deviceName);
+                writer.WriteAttributeString("designation", deviceDesignation);
                 writer.WriteAttributeString("number", deviceID.ToString());
+                writer.WriteAttributeString("role", deviceRole);
 
                 writer.WriteStartElement("coordinates");
                 {
@@ -856,24 +1100,8 @@ namespace L86_collector
             writer.WriteEndElement();
         }
 
-        enum Type
-        {
-            invalid,
-            mismatch
-        }
-        enum Device
-        {
-            reference,
-            DUT_1
-        }
         class Deviance
         {
-            public readonly DateTime time;
-
-            public readonly bool valid;
-            public readonly Device device;
-            public readonly Type type;
-
             public readonly double offset;
 
             public readonly double PDOP;
@@ -897,35 +1125,10 @@ namespace L86_collector
             public readonly double SnrDevUsed;
             public readonly double SnrDevView;
 
-            public Deviance(DateTime time, Device device)
-            {
-                this.time = time;
-                this.device = device;
-                type = Type.mismatch;
-                valid = false;
-            }
-
             public Deviance(NmeaBlock reference, NmeaBlock DUT)
             {
-                time = reference.time;
-
-                if (!reference.valid || reference.fixType != FixType.Fix3D)
-                {
-                    valid = false;
-                    device = Device.reference;
-                    type = Type.invalid;
-                    return;
-                }
-
-                if (!DUT.valid || DUT.fixType != FixType.Fix3D)
-                {
-                    valid = false;
-                    device = Device.DUT_1;
-                    type = Type.invalid;
-                    return;
-                }
-
-                valid = true;
+                if (!reference.valid || !DUT.valid)
+                    throw new Exception("Deviance: invalid");
 
                 offset = Math.Sqrt(Math.Pow(DUT.coordinates.GetDistanceTo(reference.coordinates), 2) + Math.Pow((reference.coordinates.Altitude - DUT.coordinates.Altitude), 2));
 
@@ -1003,5 +1206,20 @@ namespace L86_collector
         }
         #endregion
 
+        private static string GetMD5()
+        {
+            System.Security.Cryptography.MD5CryptoServiceProvider md5 = new System.Security.Cryptography.MD5CryptoServiceProvider();
+            System.IO.FileStream stream = new System.IO.FileStream(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName, System.IO.FileMode.Open, System.IO.FileAccess.Read);
+
+            md5.ComputeHash(stream);
+
+            stream.Close();
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < md5.Hash.Length; i++)
+                sb.Append(md5.Hash[i].ToString("x2"));
+
+            return sb.ToString().ToUpperInvariant();
+        }
     }
 }
