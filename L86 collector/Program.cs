@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1";
+        private const string SoftwareVersion = "V1.1";
 
         static bool running = false;
         enum FixQuality
@@ -158,8 +158,7 @@ namespace L86_collector
                     }
                     return;
                 }
-                using (StreamWriter write = new StreamWriter(rawFile, true))
-                    write.WriteLine(message_.ToString());
+                writeToLogFile(message_.ToString() + "\r\n", rawFile, true);
                 nmeaBlock.raw.Add(message_.ToString());
                 switch (message_.MessageType)
                 {
