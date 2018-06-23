@@ -124,10 +124,16 @@ namespace L86_collector
             public readonly string designation;
             public ConcurrentQueue<NmeaBlock> queue;
             public readonly string portNum;
+            public readonly string boardID;
+            public readonly double boardHeight;
+            public readonly double boardWidth;
 
-            public NmeaTestUnit(string portNum, string rawFile, string designation)
+            public NmeaTestUnit(string portNum, string rawFile, string designation, string boardID, double boardHeight, double boardWidth)
             {
                 this.portNum = portNum;
+                this.boardID = boardID;
+                this.boardHeight = boardHeight;
+                this.boardWidth = boardWidth;
                 queue = new ConcurrentQueue<NmeaBlock>();
                 port = new SerialPortDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One));
                 port.MessageReceived += NmeaMessageReceived;
@@ -278,7 +284,12 @@ namespace L86_collector
             Console.Write("Label of measurement: ");
             string lable = Console.ReadLine();
             Console.Write("Work directory: ");
-            string folder = /*Console.ReadLine();*/ @"C:\Users\Adam\Desktop\GND Size Study\";
+#if DEBUG
+            string folder = @"C:\Users\Adam\Desktop\GND Size Study\";
+            Console.WriteLine(folder);
+#else
+            string folder = Console.ReadLine();
+#endif
             string workFolder = Path.Combine(folder, lable) + @"\";
             if (Directory.Exists(workFolder))
             {
@@ -297,15 +308,49 @@ namespace L86_collector
                 Environment.Exit(0);
             }
 
+            Console.Write("data acquisition device ID: ");
+            string DAQ_ID = Console.ReadLine();
 
+            Console.WriteLine();
+            Console.WriteLine(">>>Device 0<<< (REF)");
             List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
             Console.Write("reference device designation: ");
             string ref_des = Console.ReadLine();
+            Console.Write("reference device board ID: ");
+            string ref_boardID = Console.ReadLine();
+            double ref_boardHeight;
+            while (true)
+            {
+                Console.Write("reference device board height [mm]: ");
+                try
+                {
+                    ref_boardHeight = Convert.ToDouble(Console.ReadLine());
+                    break;
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("Invalid height!");
+                }
+            }
+            double ref_boardWidth;
+            while (true)
+            {
+                Console.Write("reference device board width [mm]: ");
+                try
+                {
+                    ref_boardWidth = Convert.ToDouble(Console.ReadLine());
+                    break;
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("Invalid width!");
+                }
+            }
             Console.Write("reference device COM port number: ");
             string ref_com = Console.ReadLine();
             try
             {
-                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", ref_des));
+                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
             }
             catch (Exception)
             {
@@ -313,15 +358,50 @@ namespace L86_collector
                 Console.ReadLine();
                 Environment.Exit(0);
             }
+
+            int deviceSerialID = 0;
             do
             {
+                deviceSerialID++;
+                Console.WriteLine();
+                Console.WriteLine(">>>Device {0}<<<", deviceSerialID);
                 Console.Write("device designation: ");
                 string des = Console.ReadLine();
+                Console.Write("device board ID: ");
+                string boardID = Console.ReadLine();
+                double boardHeight;
+                while (true)
+                {
+                    Console.Write("device board height [mm]: ");
+                    try
+                    {
+                        boardHeight = Convert.ToDouble(Console.ReadLine());
+                        break;
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine("Invalid height!");
+                    }
+                }
+                double boardWidth;
+                while (true)
+                {
+                    Console.Write("device board width [mm]: ");
+                    try
+                    {
+                        boardWidth = Convert.ToDouble(Console.ReadLine());
+                        break;
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine("Invalid width!");
+                    }
+                }
                 Console.Write("device COM port number: ");
                 string comNum = Console.ReadLine();
                 try
                 {
-                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", des));
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", des, boardID, boardHeight, boardWidth));
                 }
                 catch (Exception)
                 {
@@ -346,6 +426,16 @@ namespace L86_collector
 
                     writer.WriteStartElement("setup");
                     {
+                        writer.WriteStartElement("DAQ_Device");
+                        {
+                            writer.WriteStartElement("ID");
+                            {
+                                writer.WriteString(DAQ_ID);
+                            }
+                            writer.WriteEndElement();
+                        }
+                        writer.WriteEndElement();
+
                         writer.WriteStartElement("DAQ_Software");
                         {
                             writer.WriteStartElement("version");
@@ -395,6 +485,30 @@ namespace L86_collector
                                     writer.WriteString(nmeaTestUnits[0].portNum);
                                 }
                                 writer.WriteEndElement();
+
+                                writer.WriteStartElement("board");
+                                {
+                                    writer.WriteStartElement("ID");
+                                    {
+                                        writer.WriteString(nmeaTestUnits[0].boardID);
+                                    }
+                                    writer.WriteEndElement();
+
+                                    writer.WriteStartElement("heigh");
+                                    {
+                                        writer.WriteAttributeString("unit", "mm");
+                                        writer.WriteString(nmeaTestUnits[0].boardHeight.ToString());
+                                    }
+                                    writer.WriteEndElement();
+
+                                    writer.WriteStartElement("width");
+                                    {
+                                        writer.WriteAttributeString("unit", "mm");
+                                        writer.WriteString(nmeaTestUnits[0].boardWidth.ToString());
+                                    }
+                                    writer.WriteEndElement();
+                                }
+                                writer.WriteEndElement();
                             }
                             writer.WriteEndElement();
 
@@ -419,6 +533,30 @@ namespace L86_collector
                                     writer.WriteStartElement("COM_portNumber");
                                     {
                                         writer.WriteString(nmeaTestUnits[i].portNum);
+                                    }
+                                    writer.WriteEndElement();
+
+                                    writer.WriteStartElement("board");
+                                    {
+                                        writer.WriteStartElement("ID");
+                                        {
+                                            writer.WriteString(nmeaTestUnits[i].boardID);
+                                        }
+                                        writer.WriteEndElement();
+
+                                        writer.WriteStartElement("heigh");
+                                        {
+                                            writer.WriteAttributeString("unit", "mm");
+                                            writer.WriteString(nmeaTestUnits[i].boardHeight.ToString());
+                                        }
+                                        writer.WriteEndElement();
+
+                                        writer.WriteStartElement("width");
+                                        {
+                                            writer.WriteAttributeString("unit", "mm");
+                                            writer.WriteString(nmeaTestUnits[i].boardWidth.ToString());
+                                        }
+                                        writer.WriteEndElement();
                                     }
                                     writer.WriteEndElement();
                                 }
@@ -549,6 +687,7 @@ namespace L86_collector
                 logFXmlWriter.IndentChar = '\t';
                 logFXmlWriter.Indentation = 1;
 
+                bool refValid;
                 logFXmlWriter.WriteStartElement("dataPoint");
                 {
                     logFXmlWriter.WriteStartElement("time");
@@ -559,7 +698,7 @@ namespace L86_collector
                     }
                     logFXmlWriter.WriteEndElement();
 
-                    bool refValid = refBlock.valid && (refBlock.time == currentTime) && (refBlock.fixType == FixType.Fix3D);
+                    refValid = refBlock.valid && (refBlock.time == currentTime) && (refBlock.fixType == FixType.Fix3D);
                     if (!refValid)
                     {
                         string errors = "REF";
@@ -587,7 +726,7 @@ namespace L86_collector
                         errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
                         datF = stringMaker("\t", datF, (refBlock.fixType != FixType.Fix2D) ? datFileString(refBlock) : datFileString());
                         locF = stringMaker("\t", locF, (refBlock.fixType == FixType.Fix2D) ? locFileString(refBlock) : locFileString());
-                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0);
+                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                     }
                     else
                     {
@@ -595,7 +734,7 @@ namespace L86_collector
                             Task.Delay(1).Wait();
                         datF = stringMaker("\t", datF, datFileString(refBlock));
                         locF = stringMaker("\t", locF, locFileString(refBlock));
-                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0);
+                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                     }
                     for (int j = 1; j < nmeaTestUnits.Length; j++)
                     {
@@ -627,7 +766,8 @@ namespace L86_collector
                             errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(5, '0')));
                             datF = stringMaker("\t", datF, (block.fixType != FixType.Fix2D) ? datFileString(block) : datFileString());
                             locF = stringMaker("\t", locF, (block.fixType == FixType.Fix2D) ? locFileString(block) : locFileString());
-                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j);
+                            devF = stringMaker("\t", devF, devFileString());
+                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                         }
                         else
                         {
@@ -636,7 +776,7 @@ namespace L86_collector
                             datF = stringMaker("\t", datF, datFileString(block));
                             locF = stringMaker("\t", locF, locFileString(block));
                             devF = stringMaker("\t", devF, refValid ? devFileString(refBlock, currentNmeaBlocks[j]) : devFileString());
-                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j);
+                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                         }
 
                     }
@@ -647,7 +787,8 @@ namespace L86_collector
                 logFWriter.Flush();
                 try
                 {
-                    writeToLogFile(devF + "\r\n", workFolder + lable + ".dev", true);
+                    if (refValid)
+                        writeToLogFile(devF + "\r\n", workFolder + lable + ".dev", true);
                     writeToLogFile(datF + "\r\n", workFolder + lable + ".dat", true);
                     writeToLogFile(locF + "\r\n", workFolder + lable + ".loc", true);
                     writeToLogFile(errF, workFolder + lable + ".err", true);
@@ -808,7 +949,7 @@ namespace L86_collector
             throw new Exception("writeToLogFile failed");
         }
 
-        static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID)
+        static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID, string boardID, double boardHeigth, double boardWidth)
         {
             writer.WriteStartElement("receiver");
             {
@@ -1067,6 +1208,30 @@ namespace L86_collector
                         }
                         writer.WriteEndElement();
                     }
+                }
+                writer.WriteEndElement();
+
+                writer.WriteStartElement("board");
+                {
+                    writer.WriteStartElement("ID");
+                    {
+                        writer.WriteString(boardID);
+                    }
+                    writer.WriteEndElement();
+
+                    writer.WriteStartElement("heigh");
+                    {
+                        writer.WriteAttributeString("unit", "mm");
+                        writer.WriteString(boardHeigth.ToString());
+                    }
+                    writer.WriteEndElement();
+
+                    writer.WriteStartElement("width");
+                    {
+                        writer.WriteAttributeString("unit", "mm");
+                        writer.WriteString(boardWidth.ToString());
+                    }
+                    writer.WriteEndElement();
                 }
                 writer.WriteEndElement();
             }
