@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1.1";
+        private const string SoftwareVersion = "V1.2";
 
         static bool running = false;
         enum FixQuality
@@ -891,6 +891,9 @@ namespace L86_collector
 
         static void writeToLogFile(string text, string fileName, bool append)
         {
+            if (text == "")
+                return;
+
             for (int i = 0; i < 6000; i++)
             {
                 try
@@ -910,6 +913,9 @@ namespace L86_collector
         }
         static void writeToLogFile(string[] texts, string fileName, bool append)
         {
+            if (texts.Length == 0)
+                return;
+
             for (int i = 0; i < 6000; i++)
             {
                 try
@@ -930,6 +936,9 @@ namespace L86_collector
 
         static void writeToLogFile(List<string> texts, string fileName, bool append)
         {
+            if (texts.Count == 0)
+                return;
+
             for (int i = 0; i < 6000; i++)
             {
                 try
