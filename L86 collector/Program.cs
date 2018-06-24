@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1.2";
+        private const string SoftwareVersion = "V1.3";
 
         static bool running = false;
         enum FixQuality
@@ -663,6 +663,7 @@ namespace L86_collector
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
                 Console.Clear();
+                Console.WriteLine("Measurement in progres: {0}", lable);
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
 
                 NmeaBlock[] currentNmeaBlocks = new NmeaBlock[nmeaTestUnits.Length];
@@ -889,12 +890,16 @@ namespace L86_collector
             return String.Join(separator, strings);
         }
 
+        const int IOwaitTime_minutes = 60;
+        const int IOdelayTime_ms = 10;
         static void writeToLogFile(string text, string fileName, bool append)
         {
             if (text == "")
                 return;
-
-            for (int i = 0; i < 6000; i++)
+            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
+            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
+            bool informed = false;
+            for (int i = 0; i < waitCycles; i++)
             {
                 try
                 {
@@ -906,7 +911,19 @@ namespace L86_collector
                 }
                 catch (Exception)
                 {
-                    Task.Delay(10).Wait();
+                    if (!informed)
+                    {
+                        informed = true;
+                        Console.WriteLine();
+                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                    }
+                    if (i > treshold)
+                    {
+                        treshold += p5;
+                        trI += 5;
+                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
+                    }
+                    Task.Delay(IOdelayTime_ms).Wait();
                 }
             }
             throw new Exception("writeToLogFile failed");
@@ -915,8 +932,10 @@ namespace L86_collector
         {
             if (texts.Length == 0)
                 return;
-
-            for (int i = 0; i < 6000; i++)
+            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
+            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
+            bool informed = false;
+            for (int i = 0; i < waitCycles; i++)
             {
                 try
                 {
@@ -928,7 +947,19 @@ namespace L86_collector
                 }
                 catch (Exception)
                 {
-                    Task.Delay(10).Wait();
+                    if (!informed)
+                    {
+                        informed = true;
+                        Console.WriteLine();
+                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                    }
+                    if (i > treshold)
+                    {
+                        treshold += p5;
+                        trI += 5;
+                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
+                    }
+                    Task.Delay(IOdelayTime_ms).Wait();
                 }
             }
             throw new Exception("writeToLogFile failed");
@@ -938,8 +969,10 @@ namespace L86_collector
         {
             if (texts.Count == 0)
                 return;
-
-            for (int i = 0; i < 6000; i++)
+            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
+            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
+            bool informed = false;
+            for (int i = 0; i < waitCycles; i++)
             {
                 try
                 {
@@ -951,7 +984,19 @@ namespace L86_collector
                 }
                 catch (Exception)
                 {
-                    Task.Delay(10).Wait();
+                    if (!informed)
+                    {
+                        informed = true;
+                        Console.WriteLine();
+                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                    }
+                    if (i > treshold)
+                    {
+                        treshold += p5;
+                        trI += 5;
+                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
+                    }
+                    Task.Delay(IOdelayTime_ms).Wait();
                 }
             }
             throw new Exception("writeToLogFile failed");
