@@ -915,7 +915,7 @@ namespace L86_collector
                     {
                         informed = true;
                         Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                        Console.WriteLine("### Susspended IO operation: " + fileName + " ###");
                     }
                     if (i > treshold)
                     {
@@ -951,7 +951,7 @@ namespace L86_collector
                     {
                         informed = true;
                         Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                        Console.WriteLine("### Susspended IO operation :" + fileName + " ###");
                     }
                     if (i > treshold)
                     {
@@ -988,7 +988,7 @@ namespace L86_collector
                     {
                         informed = true;
                         Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation:" + fileName + " ###");
+                        Console.WriteLine("### Susspended IO operation: " + fileName + " ###");
                     }
                     if (i > treshold)
                     {
@@ -1361,12 +1361,12 @@ namespace L86_collector
                 satelliteInViewGLONASS = relativeError(reference.numberOfSatellitesInViewGLONASS, DUT.numberOfSatellitesInViewGLONASS);
                 satelliteUsedGLONASS = relativeError(reference.numberOfUsedSatellitesGLONASS, DUT.numberOfUsedSatellitesGLONASS);
 
-                maxSnr = relativeError(reference.satellites.Max((x) => x.SNR), DUT.satellites.Max((x) => x.SNR));
-                maxSnrGPS = relativeError(reference.satellitesGPS.Max((x) => x.SNR), DUT.satellitesGPS.Max((x) => x.SNR));
-                maxSnrGLONASS = relativeError(reference.satellitesGLONASS.Max((x) => x.SNR), DUT.satellitesGLONASS.Max((x) => x.SNR));
-                avrSnr = relativeError(reference.satellites.Average((x) => x.SNR), DUT.satellites.Average((x) => x.SNR));
-                avrSnrGPS = relativeError(reference.satellitesGPS.Average((x) => x.SNR), DUT.satellitesGPS.Average((x) => x.SNR));
-                avrSnrGLONASS = relativeError(reference.satellitesGLONASS.Average((x) => x.SNR), DUT.satellitesGLONASS.Average((x) => x.SNR));
+                maxSnr = relativeError(reference.maxSNR, DUT.maxSNR);
+                maxSnrGPS = relativeError(reference.maxSnrGPS, DUT.maxSnrGPS);
+                maxSnrGLONASS = relativeError(reference.maxSnrGLONASS, DUT.maxSnrGLONASS);
+                avrSnr = relativeError(reference.avrSnr, DUT.avrSnr);
+                avrSnrGPS = relativeError(reference.avrSnrGPS, DUT.avrSnrGPS);
+                avrSnrGLONASS = relativeError(reference.avrSnrGLONASS, DUT.avrSnrGLONASS);
 
                 IEnumerable<int> PRNs = reference.usedSatellites.Union(DUT.usedSatellites);
                 SnrDevUsed = 0;
