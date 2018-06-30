@@ -833,7 +833,7 @@ namespace L86_collector
         }
         static string datFileString()
         {
-            return "-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-";
+            return "\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         }
 
         static string locFileString(NmeaBlock nmeaBlock)
@@ -849,7 +849,7 @@ namespace L86_collector
         }
         static string locFileString()
         {
-            return "-\t-\t-";
+            return "\t\t";
         }
 
         static string devFileString(NmeaBlock refNmeaBlock, NmeaBlock dutNmeaBlock)
@@ -882,7 +882,7 @@ namespace L86_collector
         }
         static string devFileString()
         {
-            return "-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-";
+            return "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         }
 
         static string stringMaker(string separator, params string[] strings)
