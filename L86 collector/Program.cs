@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1.3.1";
+        private const string SoftwareVersion = "V1.3";
 
         static bool running = false;
         enum FixQuality
@@ -114,7 +114,6 @@ namespace L86_collector
 
         class NmeaTestUnit
         {
-            private System.Threading.Timer portCheckerTimer;
             private bool init = false;
             private NmeaBlock nmeaBlock = null;
             private List<SatelliteData> satellitesGPS = null;
@@ -138,18 +137,9 @@ namespace L86_collector
                 queue = new ConcurrentQueue<NmeaBlock>();
                 port = new SerialPortDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One));
                 port.MessageReceived += NmeaMessageReceived;
-                port.OpenAsync().Wait();
-                portCheckerTimer = new System.Threading.Timer(portCheck, null, 5, 2000);
+                port.OpenAsync();
                 this.rawFile = rawFile;
                 this.designation = designation;
-            }
-            private void portCheck(Object stateInfo)
-            {
-                if(!port.IsOpen)
-                {
-                    Console.WriteLine("Waiting for port {0} of device {1} to reopen!", portNum, designation);
-                    port.OpenAsync().Wait();
-                }
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
