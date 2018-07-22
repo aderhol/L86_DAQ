@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1.3";
+        private const string SoftwareVersion = "V1.4";
 
         static bool running = false;
         enum FixQuality
