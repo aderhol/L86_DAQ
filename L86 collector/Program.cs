@@ -248,7 +248,21 @@ namespace L86_collector
                         nmeaBlock.satellitesGPS = satellitesGPS.OrderBy((x) => x.PRN).ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.OrderBy((x) => x.PRN).ToArray();
 
-                        queue.Enqueue(nmeaBlock);
+                        if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
+                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
+                            queue.Enqueue(nmeaBlock);
+                        else
+                        {
+                            nmeaBlock.numberOfSatellitesInViewGPS = 0;
+                            nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                            nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
+                            nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                            nmeaBlock.numberOfTrackedSatellites = 0;
+                            nmeaBlock.usedSatellitesGLONASS = new int[0];
+                            nmeaBlock.usedSatellitesGPS = new int[0];
+                            nmeaBlock.valid = false;
+                            queue.Enqueue(nmeaBlock);
+                        }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
@@ -259,7 +273,21 @@ namespace L86_collector
                         nmeaBlock.satellitesGPS = satellitesGPS.ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.ToArray();
 
-                        queue.Enqueue(nmeaBlock);
+                        if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
+                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
+                            queue.Enqueue(nmeaBlock);
+                        else
+                        {
+                            nmeaBlock.numberOfSatellitesInViewGPS = 0;
+                            nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                            nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
+                            nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                            nmeaBlock.numberOfTrackedSatellites = 0;
+                            nmeaBlock.usedSatellitesGLONASS = new int[0];
+                            nmeaBlock.usedSatellitesGPS = new int[0];
+                            nmeaBlock.valid = false;
+                            queue.Enqueue(nmeaBlock);
+                        }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
