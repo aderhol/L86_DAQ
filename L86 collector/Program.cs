@@ -312,7 +312,11 @@ namespace L86_collector
             string lable = Console.ReadLine();
             Console.Write("Work directory: ");
 #if DEBUG
+#if ACER_1
             string folder = @"C:\Users\Adam\Desktop\GND Size Study\";
+#elif DELL_2
+            string folder = @"C:\Users\Adam-MIT\Desktop\Measurements\";
+#endif
             Console.WriteLine(folder);
 #else
             string folder = Console.ReadLine();
