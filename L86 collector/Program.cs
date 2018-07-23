@@ -525,7 +525,7 @@ namespace L86_collector
                                     }
                                     writer.WriteEndElement();
 
-                                    writer.WriteStartElement("heigh");
+                                    writer.WriteStartElement("height");
                                     {
                                         writer.WriteAttributeString("unit", "mm");
                                         writer.WriteString(nmeaTestUnits[0].boardHeight.ToString());
@@ -575,7 +575,7 @@ namespace L86_collector
                                         }
                                         writer.WriteEndElement();
 
-                                        writer.WriteStartElement("heigh");
+                                        writer.WriteStartElement("height");
                                         {
                                             writer.WriteAttributeString("unit", "mm");
                                             writer.WriteString(nmeaTestUnits[i].boardHeight.ToString());
@@ -1304,7 +1304,7 @@ namespace L86_collector
                     }
                     writer.WriteEndElement();
 
-                    writer.WriteStartElement("heigh");
+                    writer.WriteStartElement("height");
                     {
                         writer.WriteAttributeString("unit", "mm");
                         writer.WriteString(boardHeigth.ToString());
