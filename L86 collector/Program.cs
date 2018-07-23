@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        private const string SoftwareVersion = "V1.4";
+        private const string SoftwareVersion = "V1.5";
 
         static bool running = false;
         enum FixQuality
@@ -699,7 +699,7 @@ namespace L86_collector
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
 
                 NmeaBlock[] currentNmeaBlocks = new NmeaBlock[nmeaTestUnits.Length];
-                DateTime currentTime = DateTime.UtcNow.AddYears(1);
+                DateTime currentTime = DateTime.UtcNow.AddYears(50);
                 for (int j = 0; j < nmeaTestUnits.Length; j++)
                 {
                     SpinWait.SpinUntil(() => nmeaTestUnits[j].queue.Count > 0);
