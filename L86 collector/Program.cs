@@ -20,6 +20,23 @@ namespace L86_collector
 {
     class Program
     {
+        private static void logTime(string folder)
+        {
+            while (!terminationEventSignal.IsCancellationRequested)
+            {
+                try
+                {
+                    using (StreamWriter wr = new StreamWriter(folder + "heartBeat.log", true))
+                    {
+                        wr.WriteLine(DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss"));
+                    }
+                }catch(Exception e)
+                {
+                }
+                Task.Delay(1000).Wait();
+            }
+        }
+
         private const string SoftwareVersion = "V1.5";
 
         static bool running = false;
@@ -338,6 +355,7 @@ namespace L86_collector
                 Console.ReadLine();
                 Environment.Exit(0);
             }
+            Task.Run(() => logTime(workFolder));
 
             Console.Write("data acquisition device ID: ");
             string DAQ_ID = Console.ReadLine();
