@@ -30,14 +30,15 @@ namespace L86_collector
                     {
                         wr.WriteLine(DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss"));
                     }
-                }catch(Exception e)
+                }
+                catch (Exception e)
                 {
                 }
                 Task.Delay(1000).Wait();
             }
         }
 
-        private const string SoftwareVersion = "V1.5";
+        private const string SoftwareVersion = "V1.6";
 
         static bool running = false;
         enum FixQuality
@@ -92,18 +93,18 @@ namespace L86_collector
             public int numberOfUsedSatellitesGPS { get { return usedSatellitesGPS.Length; } }
             public SatelliteData[] satellitesGPS;
             public int numberOfSatellitesInViewGPS;
-            public double maxSnrGPS { get { if (satellitesGPS.Length == 0) return double.NaN; else return satellitesGPS.Select(x => x.SNR).Max(); } }
-            public double avrSnrGPS { get { if (satellitesGPS.Length == 0) return double.NaN; else return satellitesGPS.Select(x => x.SNR).Average(); } }
+            public double maxSnrGPS { get { if (satellitesGPS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGPS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
+            public double avrSnrGPS { get { if (satellitesGPS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGPS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
 
             public int[] usedSatellitesGLONASS;
             public int numberOfUsedSatellitesGLONASS { get { return usedSatellitesGLONASS.Length; } }
             public SatelliteData[] satellitesGLONASS;
             public int numberOfSatellitesInViewGLONASS;
-            public double maxSnrGLONASS { get { if (satellitesGLONASS.Length == 0) return double.NaN; else return satellitesGLONASS.Select(x => x.SNR).Max(); } }
-            public double avrSnrGLONASS { get { if (satellitesGLONASS.Length == 0) return double.NaN; else return satellitesGLONASS.Select(x => x.SNR).Average(); } }
+            public double maxSnrGLONASS { get { if (satellitesGLONASS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGLONASS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
+            public double avrSnrGLONASS { get { if (satellitesGLONASS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGLONASS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
 
-            public double maxSNR { get { return Math.Max(maxSnrGPS, maxSnrGLONASS); } }
-            public double avrSnr { get { if (satellites.Length == 0) return double.NaN; else return satellites.Select(x => x.SNR).Average(); } }
+            public double maxSNR { get { if (satellites.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellites.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
+            public double avrSnr { get { if (satellites.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellites.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
 
             public int[] usedSatellites
             {
@@ -144,6 +145,15 @@ namespace L86_collector
             public readonly string boardID;
             public readonly double boardHeight;
             public readonly double boardWidth;
+            enum MessageIndex
+            {
+                RMC,
+                GGA,
+                GSA,
+                PGSV,
+                LGSV
+            };
+            private bool[] messageChecklist = new bool[5];
 
             public NmeaTestUnit(string portNum, string rawFile, string designation, string boardID, double boardHeight, double boardWidth)
             {
@@ -172,6 +182,10 @@ namespace L86_collector
                         satellitesGLONASS = new List<SatelliteData>();
                         GSAindex = 0;
                         nmeaBlock = new NmeaBlock();
+                        for (int i = 0; i < messageChecklist.Length; i++)
+                        {
+                            messageChecklist[i] = false;
+                        }
                     }
                     return;
                 }
@@ -185,8 +199,9 @@ namespace L86_collector
                             nmeaBlock.time = message.FixTime;
                             nmeaBlock.valid = message.Active;
                             nmeaBlock.coordinates = new GeoCoordinate(message.Latitude, message.Longitude);
-                            nmeaBlock.coordinates.Speed = message.Speed * 0.51444444444;
+                            nmeaBlock.coordinates.Speed = (message.Speed < 0) ? double.NaN : (message.Speed * 0.51444444444);
                             nmeaBlock.coordinates.Course = message.Course;
+                            messageChecklist[(int)MessageIndex.RMC] = true;
                         }
                         break;
                     case "GNRMC":
@@ -195,8 +210,9 @@ namespace L86_collector
                             nmeaBlock.time = message.FixTime;
                             nmeaBlock.valid = message.Active;
                             nmeaBlock.coordinates = new GeoCoordinate(message.Latitude, message.Longitude);
-                            nmeaBlock.coordinates.Speed = message.Speed * 0.51444444444;
+                            nmeaBlock.coordinates.Speed = (message.Speed < 0) ? double.NaN : (message.Speed * 0.51444444444);
                             nmeaBlock.coordinates.Course = message.Course;
+                            messageChecklist[(int)MessageIndex.RMC] = true;
                         }
                         break;
                     case "GPGGA":
@@ -207,6 +223,7 @@ namespace L86_collector
                             nmeaBlock.coordinates.Altitude = message.Altitude;
                             nmeaBlock.DGPS_age = message.TimeSinceLastDgpsUpdate;
                             nmeaBlock.DGPS_ID = message.DgpsStationId;
+                            messageChecklist[(int)MessageIndex.GGA] = true;
                         }
                         break;
                     case "GNGGA":
@@ -217,6 +234,7 @@ namespace L86_collector
                             nmeaBlock.coordinates.Altitude = message.Altitude;
                             nmeaBlock.DGPS_age = message.TimeSinceLastDgpsUpdate;
                             nmeaBlock.DGPS_ID = message.DgpsStationId;
+                            messageChecklist[(int)MessageIndex.GGA] = true;
                         }
                         break;
                     case "GPGSA":
@@ -227,9 +245,11 @@ namespace L86_collector
                             nmeaBlock.VDOP = message.Vdop;
                             nmeaBlock.PDOP = message.Pdop;
                             if (GSAindex++ == 0)
-                                nmeaBlock.usedSatellitesGPS = message.SVs.ToArray();
+                                nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
                             else
-                                nmeaBlock.usedSatellitesGLONASS = message.SVs.ToArray();
+                                nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+
+                            messageChecklist[(int)MessageIndex.GSA] = true;
                         }
                         break;
                     case "GNGSA":
@@ -243,6 +263,8 @@ namespace L86_collector
                                 nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
                             else
                                 nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+
+                            messageChecklist[(int)MessageIndex.GSA] = true;
                         }
                         break;
                     case "GPGSV":
@@ -251,6 +273,8 @@ namespace L86_collector
                             nmeaBlock.numberOfSatellitesInViewGPS = message.SVsInView;
                             foreach (SatelliteVehicle sat in message.SVs)
                                 satellitesGPS.Add(new SatelliteData(sat));
+
+                            messageChecklist[(int)MessageIndex.PGSV] = true;
                         }
                         break;
                     case "GLGSV":
@@ -259,57 +283,69 @@ namespace L86_collector
                             nmeaBlock.numberOfSatellitesInViewGLONASS = message.SVsInView;
                             foreach (SatelliteVehicle sat in message.SVs)
                                 satellitesGLONASS.Add(new SatelliteData(sat));
+
+                            messageChecklist[(int)MessageIndex.LGSV] = true;
                         }
                         break;
                     case "GPTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.OrderBy((x) => x.PRN).ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.OrderBy((x) => x.PRN).ToArray();
 
-                        if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
-                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
-                            queue.Enqueue(nmeaBlock);
-                        else
-                        {
-                            nmeaBlock.numberOfSatellitesInViewGPS = 0;
-                            nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
-                            nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
-                            nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
-                            nmeaBlock.numberOfTrackedSatellites = 0;
-                            nmeaBlock.usedSatellitesGLONASS = new int[0];
-                            nmeaBlock.usedSatellitesGPS = new int[0];
-                            nmeaBlock.valid = false;
-                            queue.Enqueue(nmeaBlock);
-                        }
+                        if (!messageChecklist.Contains(false) && GSAindex == 2)
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
+                                && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
+                                queue.Enqueue(nmeaBlock);
+                            else
+                            {
+                                nmeaBlock.numberOfSatellitesInViewGPS = 0;
+                                nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                                nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.numberOfTrackedSatellites = 0;
+                                nmeaBlock.usedSatellitesGLONASS = new int[0];
+                                nmeaBlock.usedSatellitesGPS = new int[0];
+                                nmeaBlock.valid = false;
+                                queue.Enqueue(nmeaBlock);
+                            }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
                         nmeaBlock = new NmeaBlock();
                         GSAindex = 0;
+                        for (int i = 0; i < messageChecklist.Length; i++)
+                        {
+                            messageChecklist[i] = false;
+                        }
                         break;
                     case "GNTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.ToArray();
 
-                        if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
+                        if (!messageChecklist.Contains(false) && GSAindex == 2)
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
                             && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
-                            queue.Enqueue(nmeaBlock);
-                        else
-                        {
-                            nmeaBlock.numberOfSatellitesInViewGPS = 0;
-                            nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
-                            nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
-                            nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
-                            nmeaBlock.numberOfTrackedSatellites = 0;
-                            nmeaBlock.usedSatellitesGLONASS = new int[0];
-                            nmeaBlock.usedSatellitesGPS = new int[0];
-                            nmeaBlock.valid = false;
-                            queue.Enqueue(nmeaBlock);
-                        }
+                                queue.Enqueue(nmeaBlock);
+                            else
+                            {
+                                nmeaBlock.numberOfSatellitesInViewGPS = 0;
+                                nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                                nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.numberOfTrackedSatellites = 0;
+                                nmeaBlock.usedSatellitesGLONASS = new int[0];
+                                nmeaBlock.usedSatellitesGPS = new int[0];
+                                nmeaBlock.valid = false;
+                                queue.Enqueue(nmeaBlock);
+                            }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
                         nmeaBlock = new NmeaBlock();
                         GSAindex = 0;
+                        for (int i = 0; i < messageChecklist.Length; i++)
+                        {
+                            messageChecklist[i] = false;
+                        }
                         break;
                     default:
                         break;
@@ -712,6 +748,7 @@ namespace L86_collector
             #region new
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
+
                 Console.Clear();
                 Console.WriteLine("Measurement in progres: {0}", lable);
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
@@ -757,6 +794,7 @@ namespace L86_collector
                         {
                             errors += ", missing";
                             code += 1 << 3;
+                            locF = stringMaker("\t", locF, locFileString());
                         }
                         else
                         {
@@ -764,19 +802,20 @@ namespace L86_collector
                             {
                                 errors += ", invalid";
                                 code += 1 << 2;
+                                locF = stringMaker("\t", locF, locFileString());
                             }
                             else //no Fix3D
                             {
                                 errors += ", " + (refBlock.fixType == FixType.Fix2D ? "Fix2D" : "noFix");
                                 code += 1 << (refBlock.fixType == FixType.Fix2D ? 1 : 0);
+                                locF = stringMaker("\t", locF, (refBlock.fixType == FixType.Fix2D) ? locFileString(refBlock) : locFileString());
                             }
                             while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
                                 Task.Delay(1).Wait();
+                            blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                         }
                         errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
-                        datF = stringMaker("\t", datF, (refBlock.fixType != FixType.Fix2D) ? datFileString(refBlock) : datFileString());
-                        locF = stringMaker("\t", locF, (refBlock.fixType == FixType.Fix2D) ? locFileString(refBlock) : locFileString());
-                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
+                        datF = stringMaker("\t", datF, datFileString());
                     }
                     else
                     {
@@ -797,6 +836,7 @@ namespace L86_collector
                             {
                                 errorStr = "missing";
                                 code = 1 << 3;
+                                locF = stringMaker("\t", locF, locFileString());
                             }
                             else
                             {
@@ -804,20 +844,22 @@ namespace L86_collector
                                 {
                                     errorStr = "invalid";
                                     code = 1 << 2;
+                                    locF = stringMaker("\t", locF, locFileString());
                                 }
                                 else //no Fix3D
                                 {
                                     errorStr = (block.fixType == FixType.Fix2D ? "Fix2D" : "noFix");
                                     code = 1 << (block.fixType == FixType.Fix2D ? 1 : 0);
+                                    locF = stringMaker("\t", locF, (block.fixType == FixType.Fix2D) ? locFileString(block) : locFileString());
                                 }
                                 while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
                                     Task.Delay(1).Wait();
+
+                                blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                             }
                             errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(5, '0')));
-                            datF = stringMaker("\t", datF, (block.fixType != FixType.Fix2D) ? datFileString(block) : datFileString());
-                            locF = stringMaker("\t", locF, (block.fixType == FixType.Fix2D) ? locFileString(block) : locFileString());
+                            datF = stringMaker("\t", datF, datFileString());
                             devF = stringMaker("\t", devF, devFileString());
-                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                         }
                         else
                         {
@@ -1422,18 +1464,18 @@ namespace L86_collector
                 SnrDevUsed = 0;
                 foreach (int PRN in PRNs)
                 {
-                    double SNR_ref = reference.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
-                    double SNR_DUT = DUT.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
+                    double SNR_ref = reference.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
+                    double SNR_DUT = DUT.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
                     SnrDevUsed += relativeError(SNR_ref, SNR_DUT);
                 }
                 SnrDevUsed /= PRNs.Count();
 
-                PRNs = reference.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN).Union(DUT.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN));
+                PRNs = reference.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Union(DUT.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN));
                 SnrDevView = 0;
                 foreach (int PRN in PRNs)
                 {
-                    double SNR_ref = reference.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
-                    double SNR_DUT = DUT.satellites.Where((x) => x.SNR != Double.NaN).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
+                    double SNR_ref = reference.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
+                    double SNR_DUT = DUT.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
                     SnrDevView += relativeError(SNR_ref, SNR_DUT);
                 }
                 SnrDevView /= PRNs.Count();
