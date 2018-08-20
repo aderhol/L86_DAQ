@@ -78,7 +78,7 @@ namespace L86_collector
         {
             public DateTime time;
             public bool valid;
-            public GeoCoordinate coordinates;
+            public GeoCoordinate coordinates = new GeoCoordinate();
             public FixQuality fixQuality;
             public TimeSpan DGPS_age;
             public int DGPS_ID;
@@ -189,7 +189,14 @@ namespace L86_collector
                     }
                     return;
                 }
-                writeToLogFile(message_.ToString() + "\r\n", rawFile, true);
+                try
+                {
+                    writeToLogFile(message_.ToString() + "\r\n", rawFile, true);
+                }
+                catch (Exception e)
+                {
+                    writeToLogFile(">>>Error<<<" + e.Message + "\r\n", rawFile, true);
+                }
                 nmeaBlock.raw.Add(message_.ToString());
                 switch (message_.MessageType)
                 {
@@ -198,7 +205,8 @@ namespace L86_collector
                             Gprmc message = (Gprmc)message_;
                             nmeaBlock.time = message.FixTime;
                             nmeaBlock.valid = message.Active;
-                            nmeaBlock.coordinates = new GeoCoordinate(message.Latitude, message.Longitude);
+                            nmeaBlock.coordinates.Latitude = message.Latitude;
+                            nmeaBlock.coordinates.Longitude = message.Longitude;
                             nmeaBlock.coordinates.Speed = (message.Speed < 0) ? double.NaN : (message.Speed * 0.51444444444);
                             nmeaBlock.coordinates.Course = message.Course;
                             messageChecklist[(int)MessageIndex.RMC] = true;
@@ -209,7 +217,8 @@ namespace L86_collector
                             Gnrmc message = (Gnrmc)message_;
                             nmeaBlock.time = message.FixTime;
                             nmeaBlock.valid = message.Active;
-                            nmeaBlock.coordinates = new GeoCoordinate(message.Latitude, message.Longitude);
+                            nmeaBlock.coordinates.Latitude = message.Latitude;
+                            nmeaBlock.coordinates.Longitude = message.Longitude;
                             nmeaBlock.coordinates.Speed = (message.Speed < 0) ? double.NaN : (message.Speed * 0.51444444444);
                             nmeaBlock.coordinates.Course = message.Course;
                             messageChecklist[(int)MessageIndex.RMC] = true;
