@@ -3,11 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using NmeaParser;
-using NmeaParser.Nmea;
-using NmeaParser.Nmea.Gnss;
-using NmeaParser.Nmea.Gps;
-using NmeaParser.Nmea.Glonass;
+using NMEA_Parser;
 using System.IO;
 using System.IO.Ports;
 using System.Device.Location;
@@ -15,6 +11,8 @@ using System.Collections.Concurrent;
 using System.Threading;
 using System.Xml;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using CustumLoggers;
 
 namespace L86_collector
 {
@@ -34,11 +32,11 @@ namespace L86_collector
                 catch (Exception e)
                 {
                 }
-                Task.Delay(1000).Wait();
+                Thread.Sleep(1000);
             }
         }
 
-        private const string SoftwareVersion = "V1.6";
+        private const string SoftwareVersion = "V3.0";
 
         static bool running = false;
         enum FixQuality
@@ -137,8 +135,8 @@ namespace L86_collector
             private List<SatelliteData> satellitesGPS = null;
             private List<SatelliteData> satellitesGLONASS = null;
             private int GSAindex = 0;
-            private readonly SerialPortDevice port;
-            private readonly string rawFile;
+            private readonly NmeaDevice port;
+            private readonly ThreadedLogger logger;
             public readonly string designation;
             public ConcurrentQueue<NmeaBlock> queue;
             public readonly string portNum;
@@ -155,17 +153,18 @@ namespace L86_collector
             };
             private bool[] messageChecklist = new bool[5];
 
-            public NmeaTestUnit(string portNum, string rawFile, string designation, string boardID, double boardHeight, double boardWidth)
+            public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string designation, string boardID, double boardHeight, double boardWidth)
             {
                 this.portNum = portNum;
                 this.boardID = boardID;
                 this.boardHeight = boardHeight;
                 this.boardWidth = boardWidth;
                 queue = new ConcurrentQueue<NmeaBlock>();
-                port = new SerialPortDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One));
+                port = new NmeaDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
                 port.MessageReceived += NmeaMessageReceived;
-                port.OpenAsync();
-                this.rawFile = rawFile;
+                port.OpenPort();
+                logger = new ThreadedLogger(rawFile, "RawLogger: " + designation);
+                logger.Start();
                 this.designation = designation;
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
@@ -175,8 +174,9 @@ namespace L86_collector
                 NmeaMessage message_ = ((NmeaMessageReceivedEventArgs)args_).Message;
                 if (!init)
                 {
-                    if (message_.MessageType == "GPTXT")
+                    if (message_.MessageType == "GPTXT" || message_.MessageType == "GNTXT")
                     {
+                        port.startLogging(); //start direct logging
                         init = true;
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
@@ -189,14 +189,7 @@ namespace L86_collector
                     }
                     return;
                 }
-                try
-                {
-                    writeToLogFile(message_.ToString() + "\r\n", rawFile, true);
-                }
-                catch (Exception e)
-                {
-                    writeToLogFile(">>>Error<<<" + e.Message + "\r\n", rawFile, true);
-                }
+                logger.LogLine(message_.ToString());
                 nmeaBlock.raw.Add(message_.ToString());
                 switch (message_.MessageType)
                 {
@@ -444,7 +437,7 @@ namespace L86_collector
             string ref_com = Console.ReadLine();
             try
             {
-                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
+                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", workFolder + lable + "_" + ref_des + "_REF_Direct.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
             }
             catch (Exception)
             {
@@ -495,7 +488,7 @@ namespace L86_collector
                 string comNum = Console.ReadLine();
                 try
                 {
-                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", des, boardID, boardHeight, boardWidth));
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", workFolder + lable + "_" + des + "_DUT_Direct.raw", des, boardID, boardHeight, boardWidth));
                 }
                 catch (Exception)
                 {
@@ -748,7 +741,7 @@ namespace L86_collector
                 NmeaBlock trash;
                 while (!unit.queue.IsEmpty)
                     while (!unit.queue.TryDequeue(out trash))
-                        Task.Delay(1).Wait();
+                        Thread.Yield();
             }
             running = true;
             DateTime startTime = DateTime.UtcNow;
@@ -757,18 +750,26 @@ namespace L86_collector
             #region new
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
-
+                //if (i % 100 == 0)
+                //{
                 Console.Clear();
                 Console.WriteLine("Measurement in progres: {0}", lable);
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
+                //}
 
                 NmeaBlock[] currentNmeaBlocks = new NmeaBlock[nmeaTestUnits.Length];
                 DateTime currentTime = DateTime.UtcNow.AddYears(50);
                 for (int j = 0; j < nmeaTestUnits.Length; j++)
                 {
-                    SpinWait.SpinUntil(() => nmeaTestUnits[j].queue.Count > 0);
+                    while (nmeaTestUnits[j].queue.Count == 0)
+                    {
+                        if (terminationEventSignal.IsCancellationRequested)
+                            return;
+
+                        Thread.Sleep(100);
+                    }
                     while (!nmeaTestUnits[j].queue.TryPeek(out currentNmeaBlocks[j]))
-                        Task.Delay(1).Wait();
+                        Thread.Yield();
                     currentTime = (currentTime > currentNmeaBlocks[j].time) ? currentNmeaBlocks[j].time : currentTime;
                 }
                 NmeaBlock refBlock = currentNmeaBlocks[0];
@@ -820,7 +821,7 @@ namespace L86_collector
                                 locF = stringMaker("\t", locF, (refBlock.fixType == FixType.Fix2D) ? locFileString(refBlock) : locFileString());
                             }
                             while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
-                                Task.Delay(1).Wait();
+                                Thread.Yield();
                             blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                         }
                         errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
@@ -829,7 +830,7 @@ namespace L86_collector
                     else
                     {
                         while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
-                            Task.Delay(1).Wait();
+                            Thread.Yield();
                         datF = stringMaker("\t", datF, datFileString(refBlock));
                         locF = stringMaker("\t", locF, locFileString(refBlock));
                         blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
@@ -862,7 +863,7 @@ namespace L86_collector
                                     locF = stringMaker("\t", locF, (block.fixType == FixType.Fix2D) ? locFileString(block) : locFileString());
                                 }
                                 while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
-                                    Task.Delay(1).Wait();
+                                    Thread.Yield();
 
                                 blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                             }
@@ -873,7 +874,7 @@ namespace L86_collector
                         else
                         {
                             while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
-                                Task.Delay(1).Wait();
+                                Thread.Yield();
                             datF = stringMaker("\t", datF, datFileString(block));
                             locF = stringMaker("\t", locF, locFileString(block));
                             devF = stringMaker("\t", devF, refValid ? devFileString(refBlock, currentNmeaBlocks[j]) : devFileString());
@@ -1024,7 +1025,7 @@ namespace L86_collector
                         trI += 5;
                         Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
                     }
-                    Task.Delay(IOdelayTime_ms).Wait();
+                    Thread.Sleep(IOdelayTime_ms);
                 }
             }
             throw new Exception("writeToLogFile failed");
@@ -1060,7 +1061,7 @@ namespace L86_collector
                         trI += 5;
                         Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
                     }
-                    Task.Delay(IOdelayTime_ms).Wait();
+                    Thread.Sleep(IOdelayTime_ms);
                 }
             }
             throw new Exception("writeToLogFile failed");
@@ -1097,7 +1098,7 @@ namespace L86_collector
                         trI += 5;
                         Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
                     }
-                    Task.Delay(IOdelayTime_ms).Wait();
+                    Thread.Sleep(IOdelayTime_ms);
                 }
             }
             throw new Exception("writeToLogFile failed");
