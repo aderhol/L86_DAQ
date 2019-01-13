@@ -327,13 +327,14 @@ namespace NMEA_Parser
             SerialProcessor.Start();
         }
 
+        ManualResetEvent collectorStopped = new ManualResetEvent(false);
         private void SerialCollectorWorker()
         {
             Port.ReadBufferSize = 51200;
             Port.Open();
 
             int contCount = 0;
-            while (true)
+            while (!isCloseRequested.IsCancellationRequested)
             {
                 Thread.Sleep(100);
                 if (Port.BytesToRead < 30 && (contCount < 5 || Port.BytesToRead == 0))
@@ -347,6 +348,7 @@ namespace NMEA_Parser
                 logger.Log(snippet);
                 IncomingQueue.Enqueue(snippet);
             }
+            collectorStopped.Set();
         }
 
         private int Gpgsv_count = 0;
@@ -434,10 +436,10 @@ namespace NMEA_Parser
                     switch (tokens[0])
                     {
                         case "GPTXT":
-                            MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gptxt(raw)));
+                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gptxt(raw)));
                             break;
                         case "GNTXT":
-                            MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gntxt(raw)));
+                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gntxt(raw)));
                             break;
 
                         case "GPRMC":
@@ -484,7 +486,7 @@ namespace NMEA_Parser
                                 if (!double.TryParse(tokens[8], out course))
                                     course = double.NaN;
 
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gprmc(raw, dateTime, active, latitude, longitude, speed, course)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gprmc(raw, dateTime, active, latitude, longitude, speed, course)));
                             }
                             break;
 
@@ -531,8 +533,7 @@ namespace NMEA_Parser
                                 double course;
                                 if (!double.TryParse(tokens[8], out course))
                                     course = double.NaN;
-
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gnrmc(raw, dateTime, active, latitude, longitude, speed, course)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnrmc(raw, dateTime, active, latitude, longitude, speed, course)));
                             }
                             break;
 
@@ -580,7 +581,7 @@ namespace NMEA_Parser
                                 if (!int.TryParse(tokens[14], out dgpsStationId))
                                     dgpsStationId = -1;
 
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gpgga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
                             }
                             break;
 
@@ -628,7 +629,7 @@ namespace NMEA_Parser
                                 if (!int.TryParse(tokens[14], out dgpsStationId))
                                     dgpsStationId = -1;
 
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gngga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
                             }
                             break;
 
@@ -676,7 +677,7 @@ namespace NMEA_Parser
                                     }
                                 }
 
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gngsa(raw, fixMode, hdop, vdop, pdop, sVs)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngsa(raw, fixMode, hdop, vdop, pdop, sVs)));
                             }
                             break;
 
@@ -724,7 +725,7 @@ namespace NMEA_Parser
                                     }
                                 }
 
-                                MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gpgsa(raw, fixMode, hdop, vdop, pdop, sVs)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsa(raw, fixMode, hdop, vdop, pdop, sVs)));
                             }
                             break;
 
@@ -780,7 +781,7 @@ namespace NMEA_Parser
                                     {
                                         throw;
                                     }
-                                    MessageReceived(this, new NmeaMessageReceivedEventArgs(new Gpgsv(GpgsvRaw, sVsInView, Gpgsv_sat)));
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsv(GpgsvRaw, sVsInView, Gpgsv_sat)));
                                     Gpgsv_sat = new List<SatelliteVehicle>();
                                 }
                             }
@@ -838,14 +839,14 @@ namespace NMEA_Parser
                                     {
                                         throw;
                                     }
-                                    MessageReceived(this, new NmeaMessageReceivedEventArgs(new Glgsv(GlgsvRaw, sVsInView, Glgsv_sat)));
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Glgsv(GlgsvRaw, sVsInView, Glgsv_sat)));
                                     Glgsv_sat = new List<SatelliteVehicle>();
                                 }
                             }
                             break;
 
                         default:
-                            MessageReceived(this, new NmeaMessageReceivedEventArgs(new Unknown(raw)));
+                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Unknown(raw)));
                             break;
                     }
 
@@ -855,6 +856,14 @@ namespace NMEA_Parser
         public void startLogging()
         {
             logger.Start();
+        }
+
+        CancellationTokenSource isCloseRequested = new CancellationTokenSource();
+        public void Close()
+        {
+            isCloseRequested.Cancel();
+            collectorStopped.WaitOne();
+            logger.Close();
         }
     }
 }

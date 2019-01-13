@@ -160,7 +160,11 @@ namespace L86_collector
                 this.boardHeight = boardHeight;
                 this.boardWidth = boardWidth;
                 queue = new ConcurrentQueue<NmeaBlock>();
+#if ACER_1 && DEBUG
+                port = new NmeaDevice(new SerialPort("COM" + portNum, 115200, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+#else
                 port = new NmeaDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+#endif
                 port.MessageReceived += NmeaMessageReceived;
                 port.OpenPort();
                 logger = new ThreadedLogger(rawFile, "RawLogger: " + designation);
@@ -353,6 +357,13 @@ namespace L86_collector
                         break;
                 }
             }
+
+            public void Close()
+            {
+                port.MessageReceived -= NmeaMessageReceived;
+                logger.Close();
+                port.Close();
+            }
         }
 
         static NmeaTestUnit[] nmeaTestUnits;
@@ -380,8 +391,17 @@ namespace L86_collector
             if (Directory.Exists(workFolder))
             {
                 Console.WriteLine("A measurement with this lable already exists in this directory!");
-                Console.ReadLine();
+#if DEBUG
+                Console.WriteLine("Press C for continue (the folder contents of the folder will be deleted) or Q to quit.");
+                string chIn = Console.ReadLine();
+                if (chIn == "C" || chIn == "c")
+                    Directory.Delete(workFolder, true);
+                else
+                    Environment.Exit(0);
+
+#else
                 Environment.Exit(0);
+#endif
             }
             try
             {
@@ -662,76 +682,85 @@ namespace L86_collector
                 Environment.Exit(0);
             }
 
+            ThreadedLogger devLog;
             try
             {
-                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dev", false))
-                {
-                    write.Write("time (UTC)");
+                devLog = new ThreadedLogger(workFolder + lable + ".dev", "devLog");
+                devLog.Start();
 
-                    for (int i = 1; i < nmeaTestUnits.Length; i++)
-                    {
-                        write.Write("\t{0}_offset\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS\t{0}_SnrDevView\t{0}_SnrDevUsed", nmeaTestUnits[i].designation);
-                    }
-                    write.WriteLine();
+                devLog.Log("time (UTC)");
+                for (int i = 1; i < nmeaTestUnits.Length; i++)
+                {
+                    devLog.Log("\t{0}_offset\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS\t{0}_SnrDevView\t{0}_SnrDevUsed", nmeaTestUnits[i].designation);
                 }
+                devLog.LogLine();
             }
             catch (Exception)
             {
                 Console.WriteLine(".dev file init error!");
                 Console.ReadLine();
                 Environment.Exit(0);
+                while (true) ; //to prevent the compiler from crying beacuse devLog is not initialized
             }
 
+            ThreadedLogger datLog;
             try
             {
-                using (StreamWriter write = new StreamWriter(workFolder + lable + ".dat", false))
-                {
-                    write.Write("time (UTC)");
+                datLog = new ThreadedLogger(workFolder + lable + ".dat", "datLog");
+                datLog.Start();
 
-                    for (int i = 0; i < nmeaTestUnits.Length; i++)
-                    {
-                        write.Write("\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS", nmeaTestUnits[i].designation);
-                    }
-                    write.WriteLine();
+                datLog.Log("time (UTC)");
+                for (int i = 0; i < nmeaTestUnits.Length; i++)
+                {
+                    datLog.Log("\t{0}_PDOP\t{0}_HDOP\t{0}_VDOP\t{0}_satelliteInView\t{0}_satelliteInViewGPS\t{0}_satelliteInViewGLONASS\t{0}_satelliteUsed\t{0}_satelliteUsedGPS\t{0}_satelliteUsedGLONASS\t{0}_maxSnr\t{0}_maxSnrGPS\t{0}_maxSnrGLONASS\t{0}_avrSnr\t{0}_avrSnrGPS\t{0}_avrSnrGLONASS", nmeaTestUnits[i].designation);
                 }
+                datLog.LogLine();
+
             }
             catch (Exception)
             {
                 Console.WriteLine(".dat file init error!");
                 Console.ReadLine();
                 Environment.Exit(0);
+                while (true) ; //to prevent the compiler from crying beacuse datLog is not initialized
             }
 
+            ThreadedLogger errLog;
             try
             {
-                using (StreamWriter write = new StreamWriter(workFolder + lable + ".err", false))
-                    write.WriteLine("time (UTC)\tdevice\ttype\tcode");
+                errLog = new ThreadedLogger(workFolder + lable + ".err", "errLog", 1024 * 500);
+                errLog.Start();
+
+                errLog.LogLine("time (UTC)\tdevice\ttype\tcode");
             }
             catch (Exception)
             {
                 Console.WriteLine(".err file init error!");
                 Console.ReadLine();
                 Environment.Exit(0);
+                while (true) ; //to prevent the compiler from crying beacuse errLog is not initialized
             }
 
+            ThreadedLogger locLog;
             try
             {
-                using (StreamWriter write = new StreamWriter(workFolder + lable + ".loc", false))
-                {
-                    write.Write("time (UTC)");
+                locLog = new ThreadedLogger(workFolder + lable + ".loc", "locLog");
+                locLog.Start();
 
-                    for (int i = 0; i < nmeaTestUnits.Length; i++)
-                    {
-                        write.Write("\t{0}_latitude\t{0}_longitude\t{0}_altitude", nmeaTestUnits[i].designation);
-                    }
-                    write.WriteLine();
+
+                locLog.Log("time (UTC)");
+                for (int i = 0; i < nmeaTestUnits.Length; i++)
+                {
+                    locLog.Log("\t{0}_latitude\t{0}_longitude\t{0}_altitude", nmeaTestUnits[i].designation);
                 }
+                locLog.LogLine();
             }
             catch (Exception)
             {
                 Console.WriteLine(".loc file init error!");
                 Console.ReadLine();
                 Environment.Exit(0);
+                while (true) ; //to prevent the compiler from crying beacuse locLog is not initialized
             }
 
 
@@ -748,6 +777,9 @@ namespace L86_collector
             #endregion
 
             #region new
+            ThreadedLogger logLog;
+            logLog = new ThreadedLogger(workFolder + lable + ".log", "logLog", 1024 * 1024 * 100);
+            logLog.Start();
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
                 //if (i % 100 == 0)
@@ -890,11 +922,14 @@ namespace L86_collector
                 try
                 {
                     if (refValid)
-                        writeToLogFile(devF + "\r\n", workFolder + lable + ".dev", true);
-                    writeToLogFile(datF + "\r\n", workFolder + lable + ".dat", true);
-                    writeToLogFile(locF + "\r\n", workFolder + lable + ".loc", true);
-                    writeToLogFile(errF, workFolder + lable + ".err", true);
-                    writeToLogFile(logF.ToString(), workFolder + lable + ".log", true);
+                        devLog.LogLine(devF);
+                    if (datF != "")
+                        datLog.LogLine(datF);
+                    if (locF != "")
+                        locLog.LogLine(locF);
+                    if (errF.Count > 0)
+                        errLog.LogLine(String.Join("\r\n", errF));
+                    logLog.Log(logF.ToString());
                 }
                 catch (Exception e)
                 {
@@ -907,6 +942,15 @@ namespace L86_collector
                         throw e;
                 }
             }
+            foreach (var unit in nmeaTestUnits)
+            {
+                unit.Close();
+            }
+            devLog.Close();
+            datLog.Close();
+            locLog.Close();
+            logLog.Close();
+            errLog.Close();
             #endregion
         }
 
@@ -990,118 +1034,6 @@ namespace L86_collector
         static string stringMaker(string separator, params string[] strings)
         {
             return String.Join(separator, strings);
-        }
-
-        const int IOwaitTime_minutes = 60;
-        const int IOdelayTime_ms = 10;
-        static void writeToLogFile(string text, string fileName, bool append)
-        {
-            if (text == "")
-                return;
-            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
-            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
-            bool informed = false;
-            for (int i = 0; i < waitCycles; i++)
-            {
-                try
-                {
-                    using (StreamWriter write = new StreamWriter(fileName, append))
-                    {
-                        write.Write(text);
-                    }
-                    return;
-                }
-                catch (Exception)
-                {
-                    if (!informed)
-                    {
-                        informed = true;
-                        Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation: " + fileName + " ###");
-                    }
-                    if (i > treshold)
-                    {
-                        treshold += p5;
-                        trI += 5;
-                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
-                    }
-                    Thread.Sleep(IOdelayTime_ms);
-                }
-            }
-            throw new Exception("writeToLogFile failed");
-        }
-        static void writeToLogFile(string[] texts, string fileName, bool append)
-        {
-            if (texts.Length == 0)
-                return;
-            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
-            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
-            bool informed = false;
-            for (int i = 0; i < waitCycles; i++)
-            {
-                try
-                {
-                    using (StreamWriter write = new StreamWriter(fileName, append))
-                    {
-                        write.WriteLine(String.Join("\r\n", texts));
-                    }
-                    return;
-                }
-                catch (Exception)
-                {
-                    if (!informed)
-                    {
-                        informed = true;
-                        Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation :" + fileName + " ###");
-                    }
-                    if (i > treshold)
-                    {
-                        treshold += p5;
-                        trI += 5;
-                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
-                    }
-                    Thread.Sleep(IOdelayTime_ms);
-                }
-            }
-            throw new Exception("writeToLogFile failed");
-        }
-
-        static void writeToLogFile(List<string> texts, string fileName, bool append)
-        {
-            if (texts.Count == 0)
-                return;
-            int waitCycles = IOwaitTime_minutes * 60 * 1000 / IOdelayTime_ms;
-            int p5 = (int)(waitCycles * 0.05), treshold = p5, trI = 0;
-            bool informed = false;
-            for (int i = 0; i < waitCycles; i++)
-            {
-                try
-                {
-                    using (StreamWriter write = new StreamWriter(fileName, append))
-                    {
-                        write.WriteLine(String.Join("\r\n", texts));
-                    }
-                    return;
-                }
-                catch (Exception)
-                {
-                    if (!informed)
-                    {
-                        informed = true;
-                        Console.WriteLine();
-                        Console.WriteLine("### Susspended IO operation: " + fileName + " ###");
-                    }
-                    if (i > treshold)
-                    {
-                        treshold += p5;
-                        trI += 5;
-                        Console.WriteLine("{0}% of the wait time ({1} minutes) has elapsed!", trI, IOwaitTime_minutes);
-                    }
-                    Thread.Sleep(IOdelayTime_ms);
-                }
-            }
-            throw new Exception("writeToLogFile failed");
         }
 
         static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID, string boardID, double boardHeigth, double boardWidth)
