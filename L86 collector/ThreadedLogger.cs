@@ -134,6 +134,8 @@ namespace CustumLoggers
         private int fragmantSize_;
         private double thresholdRatio_;
 
+        string posFilePath;
+
         public PreAll(string path, int fragmantSize, double thresholdRatio)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -141,8 +143,16 @@ namespace CustumLoggers
             writer_ = new StreamWriter(fs_);
             fragmantSize_ = fragmantSize;
             thresholdRatio_ = thresholdRatio;
+
+            posFilePath = Path.GetDirectoryName(path) + @"\" + Path.GetFileNameWithoutExtension(path) + "_POS" + Path.GetExtension(path);
+            using (StreamWriter posWriter = new StreamWriter(posFilePath, false))
+            {
+                posWriter.WriteLine("0");
+            }
         }
 
+        long lastPosition = 0;
+        DateTime lastPosWritten = DateTime.Now;
         public void Write(string str)
         {
             if (fs_.Length - fs_.Position < fragmantSize_ * thresholdRatio_)
@@ -153,6 +163,21 @@ namespace CustumLoggers
             writer_.Write(str);
             writer_.Write(@"@~@");
             writer_.Flush();
+
+            if (fs_.Position - lastPosition > 1024)
+            {
+                lastPosition = fs_.Position;
+                DateTime comp = DateTime.Now;
+
+                if (comp - lastPosWritten > TimeSpan.FromSeconds(10))
+                {
+                    using (StreamWriter posWriter = new StreamWriter(new FileStream(posFilePath, FileMode.Create, FileAccess.Write, FileShare.None)))
+                    {
+                        posWriter.WriteLine("{0}", fs_.Position - 3);
+                    }
+                    lastPosWritten = comp;
+                }
+            }
         }
 
         public void WriteLine(string str)
@@ -166,6 +191,7 @@ namespace CustumLoggers
                 fs_.Position -= 3;
             fs_.SetLength(fs_.Position);
             writer_.Close();
+            File.Delete(posFilePath);
         }
     }
 }
