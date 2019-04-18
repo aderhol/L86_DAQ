@@ -37,6 +37,8 @@ namespace CustumLoggers
         }
         private void ThreadLoggerCons(string path, string name, TimeSpan retryDelay, TimeSpan sleepTime, int fragmantSize)
         {
+            autoRestartTimer = new Timer((x) => ReStart());
+
             RetryDelay = retryDelay;
             SleepTime = sleepTime;
 
@@ -112,9 +114,44 @@ namespace CustumLoggers
                     }
                 }
 
-                Thread.Sleep((int)Math.Round(SleepTime.TotalMilliseconds));
+                //wait for restart if paused
+                if (!active.WaitOne(0))
+                {
+                    writer.Consolidate();
+                    active.WaitOne();
+                }
+                else
+                    Thread.Sleep((int)Math.Round(SleepTime.TotalMilliseconds));
             }
             stopped.Set();
+        }
+
+        public bool Paused { get; private set; } = false;
+        private ManualResetEvent active = new ManualResetEvent(true);
+        public void Pause()
+        {
+            if (isCloseRequested_.IsCancellationRequested)
+                return;
+
+            active.Reset();
+            Paused = true;
+        }
+
+        Timer autoRestartTimer;
+        public void Pause(TimeSpan time)
+        {
+            if (isCloseRequested_.IsCancellationRequested)
+                return;
+
+            active.Reset();
+            Paused = true;
+            autoRestartTimer.Change(time, new TimeSpan(0, 0, 0, 0, -1));
+        }
+        public void ReStart()
+        {
+            autoRestartTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            active.Set();
+            Paused = false;
         }
 
         private CancellationTokenSource isCloseRequested_ = new CancellationTokenSource();
@@ -122,6 +159,7 @@ namespace CustumLoggers
         public void Close()
         {
             isCloseRequested_.Cancel();
+            this.ReStart();
             stopped.WaitOne();
             writer.Close();
         }
@@ -133,6 +171,7 @@ namespace CustumLoggers
         private StreamWriter writer_;
         private int fragmantSize_;
         private double thresholdRatio_;
+        private bool consolidated;
 
         string posFilePath;
 
@@ -149,6 +188,9 @@ namespace CustumLoggers
             {
                 posWriter.WriteLine("0");
             }
+            writer_.Write(@"@~@");
+            writer_.Flush();
+            consolidated = false;
         }
 
         long lastPosition = 0;
@@ -158,8 +200,10 @@ namespace CustumLoggers
             if (fs_.Length - fs_.Position < fragmantSize_ * thresholdRatio_)
                 fs_.SetLength(fs_.Length + fragmantSize_);
 
-            if (fs_.Position > 3)
+            if (!consolidated)
                 fs_.Position -= 3;
+            else
+                consolidated = false;
             writer_.Write(str);
             writer_.Write(@"@~@");
             writer_.Flush();
@@ -171,6 +215,7 @@ namespace CustumLoggers
 
                 if (comp - lastPosWritten > TimeSpan.FromSeconds(10))
                 {
+                    fs_.Flush();
                     using (StreamWriter posWriter = new StreamWriter(new FileStream(posFilePath, FileMode.Create, FileAccess.Write, FileShare.None)))
                     {
                         posWriter.WriteLine("{0}", fs_.Position - 3);
@@ -185,11 +230,22 @@ namespace CustumLoggers
             this.Write(str + "\r\n");
         }
 
-        public void Close()
+        public void Consolidate()
         {
+            if (consolidated)
+                return;
+
             if (fs_.Position > 3)
                 fs_.Position -= 3;
             fs_.SetLength(fs_.Position);
+            writer_.Flush();
+
+            consolidated = true;
+        }
+
+        public void Close()
+        {
+            this.Consolidate();
             writer_.Close();
             File.Delete(posFilePath);
         }

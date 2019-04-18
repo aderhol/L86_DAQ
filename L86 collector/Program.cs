@@ -10,6 +10,7 @@ using System.Device.Location;
 using System.Collections.Concurrent;
 using System.Threading;
 using System.Xml;
+using System.Xml.Linq;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using CustumLoggers;
@@ -36,7 +37,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V4.1";
+        private const string SoftwareVersion = "V4.2";
 
         static bool running = false;
         enum FixQuality
@@ -373,6 +374,9 @@ namespace L86_collector
             #region start
             SetConsoleCtrlHandler(terminationEventHandler, true);
 
+            Console.Write("Do you wish to use a setup file? (Y/N)");
+            string isConUsed = Console.ReadLine().ToLower();
+
 
             Console.Write("Label of measurement: ");
             string lable = Console.ReadLine();
@@ -392,7 +396,7 @@ namespace L86_collector
             {
                 Console.WriteLine("A measurement with this lable already exists in this directory!");
 #if DEBUG
-                Console.WriteLine("Press C for continue (the folder contents of the folder will be deleted) or Q to quit.");
+                Console.WriteLine("Press C for continue (the contents of the folder will be deleted) or Q to quit.");
                 string chIn = Console.ReadLine();
                 if (chIn == "C" || chIn == "c")
                     Directory.Delete(workFolder, true);
@@ -415,74 +419,74 @@ namespace L86_collector
             }
             Task.Run(() => logTime(workFolder));
 
-            Console.Write("data acquisition device ID: ");
-            string DAQ_ID = Console.ReadLine();
-
-            Console.WriteLine();
-            Console.WriteLine(">>>Device 0<<< (REF)");
-            List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
-            Console.Write("reference device designation: ");
-            string ref_des = Console.ReadLine();
-            Console.Write("reference device board ID: ");
-            string ref_boardID = Console.ReadLine();
-            double ref_boardHeight;
-            while (true)
+            string DAQ_ID;
+            if (isConUsed == "y")
             {
-                Console.Write("reference device board height [mm]: ");
+                Console.Write("Path of setup file: ");
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\TEST\TEST_Setup.xml";//Console.ReadLine();
+
+                XDocument setUpFile;
                 try
                 {
-                    ref_boardHeight = Convert.ToDouble(Console.ReadLine());
-                    break;
-                }
-                catch (Exception)
-                {
-                    Console.WriteLine("Invalid height!");
-                }
-            }
-            double ref_boardWidth;
-            while (true)
-            {
-                Console.Write("reference device board width [mm]: ");
-                try
-                {
-                    ref_boardWidth = Convert.ToDouble(Console.ReadLine());
-                    break;
-                }
-                catch (Exception)
-                {
-                    Console.WriteLine("Invalid width!");
-                }
-            }
-            Console.Write("reference device COM port number: ");
-            string ref_com = Console.ReadLine();
-            try
-            {
-                nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", workFolder + lable + "_" + ref_des + "_REF_Direct.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
-            }
-            catch (Exception)
-            {
-                Console.WriteLine("COM port error!");
-                Console.ReadLine();
-                Environment.Exit(0);
-            }
+                    setUpFile = XDocument.Load(setUpFilePath);
+                    DAQ_ID = setUpFile.Root.Element("DAQ_Device").Element("ID").Value;
 
-            int deviceSerialID = 0;
-            do
+                    List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
+
+                    var refDev = (from x in setUpFile.Root.Element("devices").Elements("device")
+                                  where x.Attribute("role").Value == "reference" && x.Attribute("type").Value == "NMEA Test Unit"
+                                  select x).First();
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(refDev.Element("COM_portNumber").Value, //portNum
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.raw",
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF_Direct.raw",
+                                            refDev.Element("designation").Value, //designation
+                                            refDev.Element("board").Element("ID").Value, //boardID
+                                            Convert.ToDouble(refDev.Element("board").Element("height").Value), //W
+                                            Convert.ToDouble(refDev.Element("board").Element("width").Value)));
+
+                    var devs = from x in setUpFile.Root.Element("devices").Elements("device")
+                               where x.Attribute("role").Value == "DUT" && x.Attribute("type").Value == "NMEA Test Unit"
+                               select x;
+                    foreach (var unit in devs)
+                    {
+                        nmeaTestUnitsList.Add(new NmeaTestUnit(unit.Element("COM_portNumber").Value, //portNum
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_REF.raw",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_REF_Direct.raw",
+                                            unit.Element("designation").Value, //designation
+                                            unit.Element("board").Element("ID").Value, //boardID
+                                            Convert.ToDouble(unit.Element("board").Element("height").Value), //W
+                                            Convert.ToDouble(unit.Element("board").Element("width").Value)));
+                    }
+                    nmeaTestUnits = nmeaTestUnitsList.ToArray();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Bad setup file!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                    while (true) ; //to prevent the compiler from crying beacuse DAQ_ID is not initialized
+                }
+            }
+            else
             {
-                deviceSerialID++;
+
+                Console.Write("data acquisition device ID: ");
+                DAQ_ID = Console.ReadLine();
+
                 Console.WriteLine();
-                Console.WriteLine(">>>Device {0}<<<", deviceSerialID);
-                Console.Write("device designation: ");
-                string des = Console.ReadLine();
-                Console.Write("device board ID: ");
-                string boardID = Console.ReadLine();
-                double boardHeight;
+                Console.WriteLine(">>>Device 0<<< (REF)");
+                List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
+                Console.Write("reference device designation: ");
+                string ref_des = Console.ReadLine();
+                Console.Write("reference device board ID: ");
+                string ref_boardID = Console.ReadLine();
+                double ref_boardHeight;
                 while (true)
                 {
-                    Console.Write("device board height [mm]: ");
+                    Console.Write("reference device board height [mm]: ");
                     try
                     {
-                        boardHeight = Convert.ToDouble(Console.ReadLine());
+                        ref_boardHeight = Convert.ToDouble(Console.ReadLine());
                         break;
                     }
                     catch (Exception)
@@ -490,13 +494,13 @@ namespace L86_collector
                         Console.WriteLine("Invalid height!");
                     }
                 }
-                double boardWidth;
+                double ref_boardWidth;
                 while (true)
                 {
-                    Console.Write("device board width [mm]: ");
+                    Console.Write("reference device board width [mm]: ");
                     try
                     {
-                        boardWidth = Convert.ToDouble(Console.ReadLine());
+                        ref_boardWidth = Convert.ToDouble(Console.ReadLine());
                         break;
                     }
                     catch (Exception)
@@ -504,11 +508,11 @@ namespace L86_collector
                         Console.WriteLine("Invalid width!");
                     }
                 }
-                Console.Write("device COM port number: ");
-                string comNum = Console.ReadLine();
+                Console.Write("reference device COM port number: ");
+                string ref_com = Console.ReadLine();
                 try
                 {
-                    nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", workFolder + lable + "_" + des + "_DUT_Direct.raw", des, boardID, boardHeight, boardWidth));
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", workFolder + lable + "_" + ref_des + "_REF_Direct.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
                 }
                 catch (Exception)
                 {
@@ -517,10 +521,61 @@ namespace L86_collector
                     Environment.Exit(0);
                 }
 
-                Console.WriteLine("Do you want to add an onther device? (Y/N)");
-            } while (Console.ReadLine().ToLower() == "y");
-            nmeaTestUnits = nmeaTestUnitsList.ToArray();
+                int deviceSerialID = 0;
+                do
+                {
+                    deviceSerialID++;
+                    Console.WriteLine();
+                    Console.WriteLine(">>>Device {0}<<<", deviceSerialID);
+                    Console.Write("device designation: ");
+                    string des = Console.ReadLine();
+                    Console.Write("device board ID: ");
+                    string boardID = Console.ReadLine();
+                    double boardHeight;
+                    while (true)
+                    {
+                        Console.Write("device board height [mm]: ");
+                        try
+                        {
+                            boardHeight = Convert.ToDouble(Console.ReadLine());
+                            break;
+                        }
+                        catch (Exception)
+                        {
+                            Console.WriteLine("Invalid height!");
+                        }
+                    }
+                    double boardWidth;
+                    while (true)
+                    {
+                        Console.Write("device board width [mm]: ");
+                        try
+                        {
+                            boardWidth = Convert.ToDouble(Console.ReadLine());
+                            break;
+                        }
+                        catch (Exception)
+                        {
+                            Console.WriteLine("Invalid width!");
+                        }
+                    }
+                    Console.Write("device COM port number: ");
+                    string comNum = Console.ReadLine();
+                    try
+                    {
+                        nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", workFolder + lable + "_" + des + "_DUT_Direct.raw", des, boardID, boardHeight, boardWidth));
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine("COM port error!");
+                        Console.ReadLine();
+                        Environment.Exit(0);
+                    }
 
+                    Console.WriteLine("Do you want to add an onther device? (Y/N)");
+                } while (Console.ReadLine().ToLower() == "y");
+                nmeaTestUnits = nmeaTestUnitsList.ToArray();
+            }
             try
             {
                 using (FileStream setupFile = File.Open(workFolder + lable + @"_Setup.xml", FileMode.Create))
@@ -777,17 +832,62 @@ namespace L86_collector
             #endregion
 
             #region new
+            DateTime resumeTime = DateTime.UtcNow;
+
             ThreadedLogger logLog;
             logLog = new ThreadedLogger(workFolder + lable + ".log", "logLog", 1024 * 1024 * 100);
             logLog.Start();
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
-                //if (i % 100 == 0)
+                //if (i % 10 == 0)
                 //{
                 Console.Clear();
+                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
+                {
+                    TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
+                    Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
+                }
+                else
+                {
+                    Console.WriteLine("You can pause the logging by pressing F2.\n");
+                }
                 Console.WriteLine("Measurement in progres: {0}", lable);
                 Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
                 //}
+
+                while (Console.KeyAvailable)
+                {
+                    switch (Console.ReadKey(true).Key)
+                    {
+                        case ConsoleKey.F2:
+                            {
+                                const int minToWait = 10;
+                                devLog.Pause(new TimeSpan(0, minToWait, 0));
+                                datLog.Pause(new TimeSpan(0, minToWait, 0));
+                                errLog.Pause(new TimeSpan(0, minToWait, 0));
+                                locLog.Pause(new TimeSpan(0, minToWait, 0));
+                                logLog.Pause(new TimeSpan(0, minToWait, 0));
+
+                                resumeTime = DateTime.UtcNow.AddMinutes(minToWait);
+                                Console.WriteLine("\nLogging paused for {0} minutes.", minToWait);
+                            }
+                            break;
+
+                        case ConsoleKey.F10:
+                            {
+                                devLog.ReStart();
+                                datLog.ReStart();
+                                errLog.ReStart();
+                                locLog.ReStart();
+                                logLog.ReStart();
+                                Console.WriteLine("\nLogging was restarted.");
+                            }
+                            break;
+
+                        default:
+                            break;
+                    }
+                }
 
                 NmeaBlock[] currentNmeaBlocks = new NmeaBlock[nmeaTestUnits.Length];
                 DateTime currentTime = DateTime.UtcNow.AddYears(50);
@@ -1395,12 +1495,12 @@ namespace L86_collector
                 satelliteInViewGLONASS = relativeError(reference.numberOfSatellitesInViewGLONASS, DUT.numberOfSatellitesInViewGLONASS);
                 satelliteUsedGLONASS = relativeError(reference.numberOfUsedSatellitesGLONASS, DUT.numberOfUsedSatellitesGLONASS);
 
-                maxSnr = relativeError(reference.maxSNR, DUT.maxSNR);
-                maxSnrGPS = relativeError(reference.maxSnrGPS, DUT.maxSnrGPS);
-                maxSnrGLONASS = relativeError(reference.maxSnrGLONASS, DUT.maxSnrGLONASS);
-                avrSnr = relativeError(reference.avrSnr, DUT.avrSnr);
-                avrSnrGPS = relativeError(reference.avrSnrGPS, DUT.avrSnrGPS);
-                avrSnrGLONASS = relativeError(reference.avrSnrGLONASS, DUT.avrSnrGLONASS);
+                maxSnr = DUT.maxSNR - reference.maxSNR;
+                maxSnrGPS = DUT.maxSnrGPS - reference.maxSnrGPS;
+                maxSnrGLONASS = DUT.maxSnrGLONASS - reference.maxSnrGLONASS;
+                avrSnr = DUT.avrSnr - reference.avrSnr;
+                avrSnrGPS = DUT.avrSnrGPS - reference.avrSnrGPS;
+                avrSnrGLONASS = DUT.avrSnrGLONASS - reference.avrSnrGLONASS;
 
                 IEnumerable<int> PRNs = reference.usedSatellites.Union(DUT.usedSatellites);
                 SnrDevUsed = 0;
@@ -1408,7 +1508,7 @@ namespace L86_collector
                 {
                     double SNR_ref = reference.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
                     double SNR_DUT = DUT.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
-                    SnrDevUsed += relativeError(SNR_ref, SNR_DUT);
+                    SnrDevUsed += SNR_DUT - SNR_ref;
                 }
                 SnrDevUsed /= PRNs.Count();
 
@@ -1418,7 +1518,7 @@ namespace L86_collector
                 {
                     double SNR_ref = reference.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? reference.satellites.First(x => x.PRN == PRN).SNR : 0;
                     double SNR_DUT = DUT.satellites.Where((x) => !double.IsNaN(x.SNR)).Select((x) => x.PRN).Contains(PRN) ? DUT.satellites.First(x => x.PRN == PRN).SNR : 0;
-                    SnrDevView += relativeError(SNR_ref, SNR_DUT);
+                    SnrDevView += SNR_DUT - SNR_ref;
                 }
                 SnrDevView /= PRNs.Count();
             }
