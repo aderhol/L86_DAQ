@@ -423,7 +423,7 @@ namespace L86_collector
             if (isConUsed == "y")
             {
                 Console.Write("Path of setup file: ");
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\TEST\TEST_Setup.xml";//Console.ReadLine();
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\testSetup.xml";//Console.ReadLine();
 
                 XDocument setUpFile;
                 try
@@ -588,6 +588,12 @@ namespace L86_collector
 
                     writer.WriteStartElement("setup");
                     {
+                        writer.WriteStartElement("SNR_Deviance_unit");
+                        {
+                            writer.WriteString("dB");
+                        }
+                        writer.WriteEndElement();
+
                         writer.WriteStartElement("DAQ_Device");
                         {
                             writer.WriteStartElement("ID");
