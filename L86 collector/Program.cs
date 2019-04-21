@@ -450,8 +450,8 @@ namespace L86_collector
                     foreach (var unit in devs)
                     {
                         nmeaTestUnitsList.Add(new NmeaTestUnit(unit.Element("COM_portNumber").Value, //portNum
-                                            workFolder + lable + "_" + unit.Element("designation").Value + "_REF.raw",
-                                            workFolder + lable + "_" + unit.Element("designation").Value + "_REF_Direct.raw",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.raw",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT_Direct.raw",
                                             unit.Element("designation").Value, //designation
                                             unit.Element("board").Element("ID").Value, //boardID
                                             Convert.ToDouble(unit.Element("board").Element("height").Value), //W
