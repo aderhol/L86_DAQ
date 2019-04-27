@@ -37,7 +37,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V4.2";
+        private const string SoftwareVersion = "V4.3";
 
         static bool running = false;
         enum FixQuality
@@ -847,18 +847,18 @@ namespace L86_collector
             {
                 //if (i % 10 == 0)
                 //{
-                Console.Clear();
-                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
-                {
-                    TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
-                    Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
-                }
-                else
-                {
-                    Console.WriteLine("You can pause the logging by pressing F2.\n");
-                }
-                Console.WriteLine("Measurement in progres: {0}", lable);
-                Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
+                    Console.Clear();
+                    if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
+                    {
+                        TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
+                        Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
+                    }
+                    else
+                    {
+                        Console.WriteLine("You can pause the logging by pressing F2.\n");
+                    }
+                    Console.WriteLine("Measurement in progres: {0}", lable);
+                    Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
                 //}
 
                 while (Console.KeyAvailable)
@@ -1500,7 +1500,7 @@ namespace L86_collector
                 satelliteUsedGPS = relativeError(reference.numberOfUsedSatellitesGPS, DUT.numberOfUsedSatellitesGPS);
                 satelliteInViewGLONASS = relativeError(reference.numberOfSatellitesInViewGLONASS, DUT.numberOfSatellitesInViewGLONASS);
                 satelliteUsedGLONASS = relativeError(reference.numberOfUsedSatellitesGLONASS, DUT.numberOfUsedSatellitesGLONASS);
-
+                
                 maxSnr = DUT.maxSNR - reference.maxSNR;
                 maxSnrGPS = DUT.maxSnrGPS - reference.maxSnrGPS;
                 maxSnrGLONASS = DUT.maxSnrGLONASS - reference.maxSnrGLONASS;
@@ -1530,6 +1530,9 @@ namespace L86_collector
             }
             private double relativeError(double x, double aprx)
             {
+                if (x == aprx)
+                    return 0;
+
                 if (x != 0)
                     return Math.Sign(aprx - x) * Math.Abs((aprx - x) / x);
                 else return 1;
