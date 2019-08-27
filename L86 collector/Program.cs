@@ -37,7 +37,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V4.3";
+        private const string SoftwareVersion = "V5.0";
 
         static bool running = false;
         enum FixQuality
@@ -82,7 +82,7 @@ namespace L86_collector
             public TimeSpan DGPS_age;
             public int DGPS_ID;
             public int numberOfTrackedSatellites;
-            public int numberOfSatellitesInView { get { return numberOfSatellitesInViewGPS + numberOfSatellitesInViewGLONASS; } }
+            public int numberOfSatellitesInView { get { return numberOfSatellitesInViewGPS + numberOfSatellitesInViewGLONASS + numberOfSatellitesInViewGalileo; } }
             public FixType fixType;
             public double PDOP;
             public double HDOP;
@@ -102,6 +102,13 @@ namespace L86_collector
             public double maxSnrGLONASS { get { if (satellitesGLONASS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGLONASS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
             public double avrSnrGLONASS { get { if (satellitesGLONASS.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGLONASS.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
 
+            public int[] usedSatellitesGalileo = new int[0];
+            public int numberOfUsedSatellitesGalileo { get { return usedSatellitesGalileo.Length; } }
+            public SatelliteData[] satellitesGalileo = new SatelliteData[0];
+            public int numberOfSatellitesInViewGalileo = 0;
+            public double maxSnrGalileo { get { if (satellitesGalileo.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGalileo.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
+            public double avrSnrGalileo { get { if (satellitesGalileo.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellitesGalileo.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
+
             public double maxSNR { get { if (satellites.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellites.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Max(); } }
             public double avrSnr { get { if (satellites.Count(x => !double.IsNaN(x.SNR)) == 0) return double.NaN; else return satellites.Where(x => !double.IsNaN(x.SNR)).Select(x => x.SNR).Average(); } }
 
@@ -112,6 +119,7 @@ namespace L86_collector
                     int[] all = new int[numberOfTrackedSatellites];
                     usedSatellitesGPS.CopyTo(all, 0);
                     usedSatellitesGLONASS.CopyTo(all, usedSatellitesGPS.Length);
+                    usedSatellitesGalileo.CopyTo(all, usedSatellitesGPS.Length + usedSatellitesGLONASS.Length);
                     return all;
                 }
             }
@@ -122,6 +130,7 @@ namespace L86_collector
                     SatelliteData[] all = new SatelliteData[numberOfSatellitesInView];
                     satellitesGPS.CopyTo(all, 0);
                     satellitesGLONASS.CopyTo(all, satellitesGPS.Length);
+                    satellitesGalileo.CopyTo(all, satellitesGPS.Length + satellitesGLONASS.Length);
                     return all;
                 }
             }
@@ -135,6 +144,7 @@ namespace L86_collector
             private NmeaBlock nmeaBlock = null;
             private List<SatelliteData> satellitesGPS = null;
             private List<SatelliteData> satellitesGLONASS = null;
+            private List<SatelliteData> satellitesGalileo = null;
             private int GSAindex = 0;
             private readonly NmeaDevice port;
             private readonly ThreadedLogger logger;
@@ -150,9 +160,10 @@ namespace L86_collector
                 GGA,
                 GSA,
                 PGSV,
-                LGSV
+                LGSV,
+                AGSV
             };
-            private bool[] messageChecklist = new bool[5];
+            private bool[] messageChecklist = new bool[6];
 
             public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string designation, string boardID, double boardHeight, double boardWidth)
             {
@@ -179,12 +190,13 @@ namespace L86_collector
                 NmeaMessage message_ = ((NmeaMessageReceivedEventArgs)args_).Message;
                 if (!init)
                 {
-                    if (message_.MessageType == "GPTXT" || message_.MessageType == "GNTXT")
+                    if (message_.MessageType == "GPTXT" || message_.MessageType == "GNTXT" || message_.MessageType == "GNZDA")
                     {
                         port.startLogging(); //start direct logging
                         init = true;
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
+                        satellitesGalileo = new List<SatelliteData>();
                         GSAindex = 0;
                         nmeaBlock = new NmeaBlock();
                         for (int i = 0; i < messageChecklist.Length; i++)
@@ -251,10 +263,22 @@ namespace L86_collector
                             nmeaBlock.HDOP = message.Hdop;
                             nmeaBlock.VDOP = message.Vdop;
                             nmeaBlock.PDOP = message.Pdop;
-                            if (GSAindex++ == 0)
-                                nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
-                            else
-                                nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+
+                            GSAindex++;
+                            switch (GSAindex)
+                            {
+                                case 1:
+                                    nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+
+                                case 2:
+                                    nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+
+                                case 3:
+                                    nmeaBlock.usedSatellitesGalileo = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+                            }
 
                             messageChecklist[(int)MessageIndex.GSA] = true;
                         }
@@ -266,10 +290,22 @@ namespace L86_collector
                             nmeaBlock.HDOP = message.Hdop;
                             nmeaBlock.VDOP = message.Vdop;
                             nmeaBlock.PDOP = message.Pdop;
-                            if (GSAindex++ == 0)
-                                nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
-                            else
-                                nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+
+                            GSAindex++;
+                            switch (GSAindex)
+                            {
+                                case 1:
+                                    nmeaBlock.usedSatellitesGPS = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+
+                                case 2:
+                                    nmeaBlock.usedSatellitesGLONASS = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+
+                                case 3:
+                                    nmeaBlock.usedSatellitesGalileo = message.SVs.OrderBy((x) => x).ToArray();
+                                    break;
+                            }
 
                             messageChecklist[(int)MessageIndex.GSA] = true;
                         }
@@ -294,29 +330,45 @@ namespace L86_collector
                             messageChecklist[(int)MessageIndex.LGSV] = true;
                         }
                         break;
+                    case "GAGSV":
+                        {
+                            Gagsv message = (Gagsv)message_;
+                            nmeaBlock.numberOfSatellitesInViewGalileo = message.SVsInView;
+                            foreach (SatelliteVehicle sat in message.SVs)
+                                satellitesGalileo.Add(new SatelliteData(sat));
+
+                            messageChecklist[(int)MessageIndex.AGSV] = true;
+                        }
+                        break;
+                    case "GNZDA":
                     case "GPTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.OrderBy((x) => x.PRN).ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.OrderBy((x) => x.PRN).ToArray();
+                        nmeaBlock.satellitesGalileo = satellitesGalileo.OrderBy((x) => x.PRN).ToArray();
 
-                        if (!messageChecklist.Contains(false) && GSAindex == 2)
-                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
-                                && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
+                        if ((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3))
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
+                                && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
                                 queue.Enqueue(nmeaBlock);
                             else
                             {
                                 nmeaBlock.numberOfSatellitesInViewGPS = 0;
                                 nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                                nmeaBlock.numberOfSatellitesInViewGalileo = 0;
                                 nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
                                 nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.satellitesGalileo = new List<SatelliteData>().ToArray();
                                 nmeaBlock.numberOfTrackedSatellites = 0;
                                 nmeaBlock.usedSatellitesGLONASS = new int[0];
                                 nmeaBlock.usedSatellitesGPS = new int[0];
+                                nmeaBlock.usedSatellitesGalileo = new int[0];
                                 nmeaBlock.valid = false;
                                 queue.Enqueue(nmeaBlock);
                             }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
+                        satellitesGalileo = new List<SatelliteData>();
                         nmeaBlock = new NmeaBlock();
                         GSAindex = 0;
                         for (int i = 0; i < messageChecklist.Length; i++)
@@ -328,25 +380,29 @@ namespace L86_collector
                         nmeaBlock.satellitesGPS = satellitesGPS.ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.ToArray();
 
-                        if (!messageChecklist.Contains(false) && GSAindex == 2)
-                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS
-                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS))
+                        if ((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3))
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
+                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
                                 queue.Enqueue(nmeaBlock);
                             else
                             {
                                 nmeaBlock.numberOfSatellitesInViewGPS = 0;
                                 nmeaBlock.numberOfSatellitesInViewGLONASS = 0;
+                                nmeaBlock.numberOfSatellitesInViewGalileo = 0;
                                 nmeaBlock.satellitesGLONASS = new List<SatelliteData>().ToArray();
                                 nmeaBlock.satellitesGPS = new List<SatelliteData>().ToArray();
+                                nmeaBlock.satellitesGalileo = new List<SatelliteData>().ToArray();
                                 nmeaBlock.numberOfTrackedSatellites = 0;
                                 nmeaBlock.usedSatellitesGLONASS = new int[0];
                                 nmeaBlock.usedSatellitesGPS = new int[0];
+                                nmeaBlock.usedSatellitesGalileo = new int[0];
                                 nmeaBlock.valid = false;
                                 queue.Enqueue(nmeaBlock);
                             }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
+                        satellitesGalileo = new List<SatelliteData>();
                         nmeaBlock = new NmeaBlock();
                         GSAindex = 0;
                         for (int i = 0; i < messageChecklist.Length; i++)
@@ -847,18 +903,18 @@ namespace L86_collector
             {
                 //if (i % 10 == 0)
                 //{
-                    Console.Clear();
-                    if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
-                    {
-                        TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
-                        Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
-                    }
-                    else
-                    {
-                        Console.WriteLine("You can pause the logging by pressing F2.\n");
-                    }
-                    Console.WriteLine("Measurement in progres: {0}", lable);
-                    Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
+                Console.Clear();
+                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
+                {
+                    TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
+                    Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
+                }
+                else
+                {
+                    Console.WriteLine("You can pause the logging by pressing F2.\n");
+                }
+                Console.WriteLine("Measurement in progres: {0}", lable);
+                Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
                 //}
 
                 while (Console.KeyAvailable)
@@ -1500,7 +1556,7 @@ namespace L86_collector
                 satelliteUsedGPS = relativeError(reference.numberOfUsedSatellitesGPS, DUT.numberOfUsedSatellitesGPS);
                 satelliteInViewGLONASS = relativeError(reference.numberOfSatellitesInViewGLONASS, DUT.numberOfSatellitesInViewGLONASS);
                 satelliteUsedGLONASS = relativeError(reference.numberOfUsedSatellitesGLONASS, DUT.numberOfUsedSatellitesGLONASS);
-                
+
                 maxSnr = DUT.maxSNR - reference.maxSNR;
                 maxSnrGPS = DUT.maxSnrGPS - reference.maxSnrGPS;
                 maxSnrGLONASS = DUT.maxSnrGLONASS - reference.maxSnrGLONASS;

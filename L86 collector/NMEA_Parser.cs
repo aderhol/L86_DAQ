@@ -1,4 +1,6 @@
-﻿using System;
+﻿//#define NMEADevice_UnitTest
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -43,6 +45,13 @@ namespace NMEA_Parser
     public class Gntxt : NmeaMessage
     {
         public Gntxt(string rawMessage) : base(rawMessage, "GNTXT")
+        {
+
+        }
+    }
+    public class Gnzda : NmeaMessage
+    {
+        public Gnzda(string rawMessage) : base(rawMessage, "GNZDA")
         {
 
         }
@@ -271,6 +280,15 @@ namespace NMEA_Parser
         {
         }
     }
+    public class Gagsv : Gsv
+    {
+        public Gagsv(string rawMessage, int sVsInView, List<SatelliteVehicle> sVs) : base(rawMessage, "GAGSV", sVsInView, sVs)
+        {
+        }
+        public Gagsv(Gagsv x) : base(x)
+        {
+        }
+    }
 
 
 
@@ -284,6 +302,7 @@ namespace NMEA_Parser
     }
 
     #endregion //NMEA
+
     public class NmeaDevice
     {
         private volatile SerialPort Port;
@@ -318,6 +337,23 @@ namespace NMEA_Parser
             SerialProcessor.IsBackground = true;
         }
 
+#if NMEADevice_UnitTest
+        public NmeaDevice(SerialPort serialPort, string name)
+        {
+            Port = serialPort;
+            Incoming = "";
+            IncomingQueue = new ConcurrentQueue<string>();
+
+            SerialCollector = new Thread(new ThreadStart(SerialCollectorWorker));
+            SerialCollector.Name = "SerialCollector: " + name;
+            SerialCollector.IsBackground = true;
+
+            SerialProcessor = new Thread(new ThreadStart(Process));
+            SerialProcessor.Name = "SeralProcessor: " + name;
+            SerialProcessor.IsBackground = true;
+        }
+#endif
+
         public void OpenPort()
         {
             if (Port.IsOpen)
@@ -345,7 +381,9 @@ namespace NMEA_Parser
 
                 contCount = 0;
                 string snippet = Port.ReadExisting();
+#if !NMEADevice_UnitTest
                 logger.Log(snippet);
+#endif
                 IncomingQueue.Enqueue(snippet);
             }
             collectorStopped.Set();
@@ -357,6 +395,9 @@ namespace NMEA_Parser
         private int Glgsv_count = 0;
         private List<SatelliteVehicle> Glgsv_sat = new List<SatelliteVehicle>();
         private string GlgsvRaw = "";
+        private int Gagsv_count = 0;
+        private List<SatelliteVehicle> Gagsv_sat = new List<SatelliteVehicle>();
+        private string GagsvRaw = "";
         private void Process()
         {
             while (true)
@@ -433,6 +474,18 @@ namespace NMEA_Parser
                         GlgsvRaw = "";
                     }
 
+                    if (tokens[0] == "GAGSV")
+                    {
+                        GagsvRaw += ((GagsvRaw == "") ? ("") : ("\r\n")) + raw;
+                        Gagsv_count++;
+                    }
+                    else
+                    {
+                        Gagsv_count = 0;
+                        Gagsv_sat = new List<SatelliteVehicle>();
+                        GagsvRaw = "";
+                    }
+
                     switch (tokens[0])
                     {
                         case "GPTXT":
@@ -441,17 +494,36 @@ namespace NMEA_Parser
                         case "GNTXT":
                             MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gntxt(raw)));
                             break;
+                        case "GNZDA":
+                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnzda(raw)));
+                            break;
 
                         case "GPRMC":
                             {
-                                if (tokens.Length != 13)
+                                if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
                                     break;
+
+                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
 
 
                                 DateTime dateTime;
                                 try
                                 {
-                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                    if (tokens[1] != "" && tokens[9] != "")
+                                    {
+                                        if (v4)
+                                        {
+                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                        }
+                                        else
+                                        {
+                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        dateTime = DateTime.MinValue;
+                                    }
                                 }
                                 catch (Exception el)
                                 {
@@ -492,14 +564,29 @@ namespace NMEA_Parser
 
                         case "GNRMC":
                             {
-                                if (tokens.Length != 13)
+                                if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
                                     break;
 
+                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
 
                                 DateTime dateTime;
                                 try
                                 {
-                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                    if (tokens[1] != "" && tokens[9] != "")
+                                    {
+                                        if (v4)
+                                        {
+                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                        }
+                                        else
+                                        {
+                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        dateTime = DateTime.MinValue;
+                                    }
                                 }
                                 catch (Exception el)
                                 {
@@ -635,7 +722,7 @@ namespace NMEA_Parser
 
                         case "GNGSA":
                             {
-                                if (tokens.Length != 18)
+                                if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
                                     break;
 
                                 Mode fixMode;
@@ -683,7 +770,7 @@ namespace NMEA_Parser
 
                         case "GPGSA":
                             {
-                                if (tokens.Length != 18)
+                                if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
                                     break;
 
                                 Mode fixMode;
@@ -734,6 +821,9 @@ namespace NMEA_Parser
                                 if (tokens.Length < 4)
                                     break;
 
+                                if (tokens.Length % 4 == 1)
+                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
+
                                 int seqNum;
                                 try
                                 {
@@ -762,6 +852,9 @@ namespace NMEA_Parser
                                 {
                                     try
                                     {
+                                        if (tokens[i] == "")
+                                            continue;
+
                                         Gpgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
                                     }
                                     catch
@@ -792,6 +885,10 @@ namespace NMEA_Parser
                                 if (tokens.Length < 4)
                                     break;
 
+                                if (tokens.Length % 4 == 1)
+                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
+
+
                                 int seqNum;
                                 try
                                 {
@@ -820,6 +917,9 @@ namespace NMEA_Parser
                                 {
                                     try
                                     {
+                                        if (tokens[i] == "")
+                                            continue;
+
                                         Glgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
                                     }
                                     catch
@@ -845,6 +945,70 @@ namespace NMEA_Parser
                             }
                             break;
 
+                        case "GAGSV": //Galileo
+                            {
+                                if (tokens.Length < 4)
+                                    break;
+
+                                if (tokens.Length % 4 == 1)
+                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
+
+                                int seqNum;
+                                try
+                                {
+                                    seqNum = Convert.ToInt32(tokens[2]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+                                if (seqNum != Gagsv_count)
+                                {
+                                    break;
+                                }
+
+                                int totalNum;
+                                try
+                                {
+                                    totalNum = Convert.ToInt32(tokens[1]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                for (int i = 4; i < tokens.Length; i += 4)
+                                {
+                                    try
+                                    {
+                                        if (tokens[i] == "")
+                                            continue;
+
+                                        Gagsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                }
+
+                                if (seqNum == totalNum)
+                                {
+                                    int sVsInView;
+                                    try
+                                    {
+                                        sVsInView = Convert.ToInt32(tokens[3]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gagsv(GagsvRaw, sVsInView, Gagsv_sat)));
+                                    Gagsv_sat = new List<SatelliteVehicle>();
+                                }
+                            }
+                            break;
+
                         default:
                             MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Unknown(raw)));
                             break;
@@ -855,7 +1019,9 @@ namespace NMEA_Parser
         }
         public void startLogging()
         {
+#if !NMEADevice_UnitTest
             logger.Start();
+#endif
         }
 
         CancellationTokenSource isCloseRequested = new CancellationTokenSource();
@@ -863,7 +1029,9 @@ namespace NMEA_Parser
         {
             isCloseRequested.Cancel();
             collectorStopped.WaitOne();
+#if !NMEADevice_UnitTest
             logger.Close();
+#endif
         }
     }
 }

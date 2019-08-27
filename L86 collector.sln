@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.27428.2005
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "L86 collector", "L86 collector\L86 collector.csproj", "{61B49BCA-9E65-46AE-97C3-2D0BDB72760A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTester", "UnitTester\UnitTester.csproj", "{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,6 +33,24 @@ Global
 		{61B49BCA-9E65-46AE-97C3-2D0BDB72760A}.Win XP|x64.Build.0 = Win XP|x64
 		{61B49BCA-9E65-46AE-97C3-2D0BDB72760A}.Win XP|x86.ActiveCfg = Win XP|x86
 		{61B49BCA-9E65-46AE-97C3-2D0BDB72760A}.Win XP|x86.Build.0 = Win XP|x86
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|x64.Build.0 = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Debug|x86.Build.0 = Debug|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|x64.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|x64.Build.0 = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|x86.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Release|x86.Build.0 = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|Any CPU.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|Any CPU.Build.0 = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|x64.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|x64.Build.0 = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|x86.ActiveCfg = Release|Any CPU
+		{4A4C4688-B533-4A4A-A6B1-3EC311F776B7}.Win XP|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
