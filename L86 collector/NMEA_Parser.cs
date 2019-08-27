@@ -290,7 +290,92 @@ namespace NMEA_Parser
         }
     }
 
+    public enum PpsStatus
+    {
+        OK,
+        notPossible,
+        glitch,
+        old,
+        ppsMissing,
+        refMissing,
+        unexpected
+    }
+    public class Refcheck : NmeaMessage
+    {
+        public double softwareDelay { get; }
+        public double skew_ns { get; }
+        public Int64 absTime_ref_ticks { get; }
+        public Int64 absTime_check_ticks { get; }
+        public PpsStatus status { get; }
 
+        public Refcheck(string rawMessage, double softwareDelay, double skew_ns, Int64 absTime_ref_ticks, Int64 absTime_check_ticks, PpsStatus status) : base(rawMessage, "REFCHECK")
+        {
+            this.softwareDelay = softwareDelay;
+            this.skew_ns = skew_ns;
+            this.absTime_ref_ticks = absTime_ref_ticks;
+            this.absTime_check_ticks = absTime_check_ticks;
+            this.status = status;
+        }
+    }
+
+    public class Extraref : NmeaMessage
+    {
+        public string channelName { get; }
+        public Extraref(string rawMessage, string channelName) : base(rawMessage, "EXTRAREF")
+        {
+            this.channelName = channelName;
+        }
+    }
+
+    public class Skew : NmeaMessage
+    {
+        public double packetDelay { get; }
+        public double skew_ns { get; }
+        public Int64 absTime_ticks { get; }
+        public PpsStatus status { get; }
+
+        public Skew(string rawMessage, double packetDelay, double skew_ns, Int64 absTime_ticks, PpsStatus status) : base(rawMessage, "SKEW")
+        {
+            this.packetDelay = packetDelay;
+            this.skew_ns = skew_ns;
+            this.absTime_ticks = absTime_ticks;
+            this.status = status;
+        }
+    }
+
+    public enum SenDataStatus
+    {
+        OK,
+        old,
+        invalid
+    }
+    public class SenData : NmeaMessage
+    {
+        public double temperature_bmp180_C { get; }
+        public double pressure_Pa { get; }
+
+        public double visibleLightIntensity_lx { get; }
+        public double infraredLighIntensity { get; }
+
+        public double temperature_sht21_C { get; }
+        public double relativeHumidity_percentage { get; }
+
+        public double sampleAge_ms { get; }
+
+        public SenDataStatus status { get; }
+
+        public SenData(string rawMessage, double temperature_bmp180_C, double pressure_Pa, double visibleLightIntensity_lx, double infraredLighIntensity, double temperature_C_sht21, double relativeHumidity_percentage, double samlpleAge_ms, SenDataStatus status) : base(rawMessage, "SENDAT")
+        {
+            this.temperature_bmp180_C = temperature_bmp180_C;
+            this.pressure_Pa = pressure_Pa;
+            this.visibleLightIntensity_lx = visibleLightIntensity_lx;
+            this.infraredLighIntensity = infraredLighIntensity;
+            this.temperature_sht21_C = temperature_C_sht21;
+            this.relativeHumidity_percentage = relativeHumidity_percentage;
+            this.sampleAge_ms = samlpleAge_ms;
+            this.status = status;
+        }
+    }
 
     public class NmeaMessageReceivedEventArgs : EventArgs
     {
@@ -1006,6 +1091,283 @@ namespace NMEA_Parser
                                     MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gagsv(GagsvRaw, sVsInView, Gagsv_sat)));
                                     Gagsv_sat = new List<SatelliteVehicle>();
                                 }
+                            }
+                            break;
+
+                        case "REFCHECK":
+                            {
+                                if (tokens.Length != 10)
+                                    break;
+
+                                PpsStatus status;
+                                switch (tokens[9])
+                                {
+                                    case "OK":
+                                        status = PpsStatus.OK;
+                                        break;
+
+                                    case "???":
+                                        status = PpsStatus.notPossible;
+                                        break;
+
+                                    case "GLITCH":
+                                        status = PpsStatus.glitch;
+                                        break;
+
+                                    case "OLD":
+                                        status = PpsStatus.old;
+                                        break;
+
+                                    case "CHECK_MISSING":
+                                        status = PpsStatus.ppsMissing;
+                                        break;
+
+                                    case "REF_MISSING":
+                                        status = PpsStatus.refMissing;
+                                        break;
+
+                                    default:
+                                        status = PpsStatus.unexpected;
+                                        break;
+                                }
+
+                                double softwareDelay;
+                                try
+                                {
+                                    softwareDelay = Convert.ToDouble(tokens[1]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double skew;
+                                try
+                                {
+                                    skew = Convert.ToDouble(tokens[3]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                Int64 absTime_ref;
+                                try
+                                {
+                                    if (status == PpsStatus.glitch || status == PpsStatus.refMissing)
+                                    {
+                                        absTime_ref = -1;
+                                    }
+                                    else
+                                    {
+                                        absTime_ref = Convert.ToInt64(tokens[5]);
+                                    }
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                Int64 absTime_check;
+                                try
+                                {
+                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
+                                    {
+                                        absTime_check = -1;
+                                    }
+                                    else
+                                    {
+                                        absTime_check = Convert.ToInt64(tokens[7]);
+                                    }
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Refcheck(raw, softwareDelay, skew, absTime_ref, absTime_check, status)));
+                            }
+                            break;
+
+                        case "EXTRAREF":
+                            {
+                                if (tokens.Length != 2)
+                                    break;
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Extraref(raw, tokens[1])));
+                            }
+                            break;
+
+                        case "SKEW":
+                            {
+                                if (tokens.Length != 8)
+                                    break;
+
+                                PpsStatus status;
+                                switch (tokens[7])
+                                {
+                                    case "OK":
+                                        status = PpsStatus.OK;
+                                        break;
+
+                                    case "???":
+                                        status = PpsStatus.notPossible;
+                                        break;
+
+                                    case "GLITCH":
+                                        status = PpsStatus.glitch;
+                                        break;
+
+                                    case "OLD":
+                                        status = PpsStatus.old;
+                                        break;
+
+                                    case "PPS_MISSING":
+                                        status = PpsStatus.ppsMissing;
+                                        break;
+
+                                    case "REF_MISSING":
+                                        status = PpsStatus.refMissing;
+                                        break;
+
+                                    default:
+                                        status = PpsStatus.unexpected;
+                                        break;
+                                }
+
+                                double packetDelay;
+                                try
+                                {
+                                    packetDelay = Convert.ToDouble(tokens[1]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double skew;
+                                try
+                                {
+                                    skew = Convert.ToDouble(tokens[3]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                Int64 absTime;
+                                try
+                                {
+                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
+                                    {
+                                        absTime = -1;
+                                    }
+                                    else
+                                    {
+                                        absTime = Convert.ToInt64(tokens[5]);
+                                    }
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Skew(raw, packetDelay, skew, absTime, status)));
+                            }
+                            break;
+
+                        case "SENDAT":
+                            {
+                                if (tokens.Length != 16)
+                                    break;
+
+                                SenDataStatus status;
+                                switch (tokens[15])
+                                {
+                                    case "OK":
+                                        status = SenDataStatus.OK;
+                                        break;
+
+                                    case "OLD":
+                                        status = SenDataStatus.old;
+                                        break;
+                                        
+                                    default:
+                                        status = SenDataStatus.invalid;
+                                        break;
+                                }
+
+                                double temperature_bmp180;
+                                try
+                                {
+                                    temperature_bmp180 = Convert.ToDouble(tokens[1]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double pressure;
+                                try
+                                {
+                                    pressure = Convert.ToDouble(tokens[3]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double visibleLightIntensity;
+                                try
+                                {
+                                    visibleLightIntensity = Convert.ToDouble(tokens[5]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double infraredLighIntensity;
+                                try
+                                {
+                                    infraredLighIntensity = Convert.ToDouble(tokens[7]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double temperature_sht21;
+                                try
+                                {
+                                    temperature_sht21 = Convert.ToDouble(tokens[9]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double relativeHumidity;
+                                try
+                                {
+                                    relativeHumidity = Convert.ToDouble(tokens[11]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double sampleAge;
+                                try
+                                {
+                                    sampleAge = Convert.ToDouble(tokens[13]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180,pressure,visibleLightIntensity,infraredLighIntensity,temperature_sht21,relativeHumidity,sampleAge, status)));
                             }
                             break;
 
