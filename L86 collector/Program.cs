@@ -209,7 +209,7 @@ namespace L86_collector
 #if ACER_1 && DEBUG
                 port = new NmeaDevice(new SerialPort("COM" + portNum, 115200, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #else
-                port = new NmeaDevice(new SerialPort("COM" + portNum, 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                port = new NmeaDevice(new SerialPort("COM" + portNum, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #endif
                 port.MessageReceived += NmeaMessageReceived;
                 port.OpenPort();
@@ -597,6 +597,8 @@ namespace L86_collector
             string folder = @"C:\Users\Adam\Desktop\GND Size Study\";
 #elif DELL_2
             string folder = @"C:\Users\Adam-MIT\Desktop\Measurements\";
+#else
+            string folder = Console.ReadLine();
 #endif
             Console.WriteLine(folder);
 #else
