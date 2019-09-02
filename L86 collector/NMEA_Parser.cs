@@ -317,6 +317,15 @@ namespace NMEA_Parser
             this.status = status;
         }
     }
+    public class Reftime : NmeaMessage
+    {
+        public Int64 absTime_ticks { get; }
+
+        public Reftime(string rawMessage, Int64 absTime_ticks) : base(rawMessage, "REFTIME")
+        {
+            this.absTime_ticks = absTime_ticks;
+        }
+    }
 
     public class Extraref : NmeaMessage
     {
@@ -418,7 +427,7 @@ namespace NMEA_Parser
             SerialCollector.IsBackground = true;
 
             SerialProcessor = new Thread(new ThreadStart(Process));
-            SerialProcessor.Name = "SeralProcessor: " + name;
+            SerialProcessor.Name = "SerialProcessor: " + name;
             SerialProcessor.IsBackground = true;
         }
 
@@ -513,6 +522,11 @@ namespace NMEA_Parser
                     raw = new string(Incoming.TakeWhile((x) => x != '\n').ToArray()) + "\n"; //fetch message
                     Incoming = Incoming.Remove(0, raw.Length); //remove fetched message
                     raw = raw.TrimEnd("\r\n".ToCharArray());
+
+                    if (raw.Length == 0 || raw[0] != '$') //if the message is empty or is not an NMEA message
+                    {
+                        continue;
+                    }
 
                     int starIndex = raw.IndexOf('*');
                     if (starIndex == -1)
@@ -1154,7 +1168,7 @@ namespace NMEA_Parser
                                 Int64 absTime_ref;
                                 try
                                 {
-                                    if (status == PpsStatus.glitch || status == PpsStatus.refMissing)
+                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing || status == PpsStatus.refMissing)
                                     {
                                         absTime_ref = -1;
                                     }
@@ -1186,6 +1200,25 @@ namespace NMEA_Parser
                                 }
 
                                 MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Refcheck(raw, softwareDelay, skew, absTime_ref, absTime_check, status)));
+                            }
+                            break;
+
+                        case "REFTIME":
+                            {
+                                if (tokens.Length != 3)
+                                    break;
+
+                                Int64 absTime;
+                                try
+                                {
+                                    absTime = Convert.ToInt64(tokens[1]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Reftime(raw, absTime)));
                             }
                             break;
 
@@ -1291,7 +1324,7 @@ namespace NMEA_Parser
                                     case "OLD":
                                         status = SenDataStatus.old;
                                         break;
-                                        
+
                                     default:
                                         status = SenDataStatus.invalid;
                                         break;
@@ -1367,7 +1400,7 @@ namespace NMEA_Parser
                                     throw;
                                 }
 
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180,pressure,visibleLightIntensity,infraredLighIntensity,temperature_sht21,relativeHumidity,sampleAge, status)));
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180, pressure, visibleLightIntensity, infraredLighIntensity, temperature_sht21, relativeHumidity, sampleAge, status)));
                             }
                             break;
 

@@ -73,6 +73,28 @@ namespace L86_collector
                 SNR = sat.SignalToNoiseRatio;
             }
         }
+        struct SkewData
+        {
+            public double packetDelay_ms;
+            public double skew_ns;
+            public Int64 absTime_ticks;
+            public PpsStatus status;
+        }
+        struct SensorData
+        {
+            public double temperature_bmp180_C;
+            public double pressure_Pa;
+
+            public double visibleLightIntensity_lx;
+            public double infraredLighIntensity;
+
+            public double temperature_sht21_C;
+            public double relativeHumidity_percentage;
+
+            public double sampleAge_ms;
+
+            public SenDataStatus status;
+        }
         private class NmeaBlock
         {
             public DateTime time;
@@ -136,10 +158,16 @@ namespace L86_collector
             }
 
             public List<string> raw = new List<string>();
+
+            public SkewData skewData;
+
+            public SensorData SensorData;
         }
 
         class NmeaTestUnit
         {
+            private readonly bool collectSkew;
+
             private bool init = false;
             private NmeaBlock nmeaBlock = null;
             private List<SatelliteData> satellitesGPS = null;
@@ -164,9 +192,15 @@ namespace L86_collector
                 AGSV
             };
             private bool[] messageChecklist = new bool[6];
+            private bool skewReceived;
+            private bool sensorDataReceived;
 
-            public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string designation, string boardID, double boardHeight, double boardWidth)
+            private readonly ThreadedLogger refTimeLog, checkLog, refErrLog;
+
+            public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
             {
+                this.collectSkew = collectSkew;
+
                 this.portNum = portNum;
                 this.boardID = boardID;
                 this.boardHeight = boardHeight;
@@ -182,6 +216,20 @@ namespace L86_collector
                 logger = new ThreadedLogger(rawFile, "RawLogger: " + designation);
                 logger.Start();
                 this.designation = designation;
+                if (collectSkew)
+                {
+                    refTimeLog = new ThreadedLogger(refTimeFile, "refTimeLogger: " + designation);
+                    refTimeLog.Start();
+                    refTimeLog.LogLine("Capture Time (UTC)\tabsTime");
+
+                    checkLog = new ThreadedLogger(refCheckFile, "refCheckLogger: " + designation);
+                    checkLog.Start();
+                    checkLog.LogLine("Capture Time (UTC)\tskew\tref_absTime\tchk_absTime");
+
+                    refErrLog = new ThreadedLogger(refErrorFile, "refErrorLogger: " + designation);
+                    refErrLog.Start();
+                    refErrLog.LogLine("Capture Time (UTC)\ttype");
+                }
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
@@ -203,6 +251,8 @@ namespace L86_collector
                         {
                             messageChecklist[i] = false;
                         }
+                        skewReceived = false;
+                        sensorDataReceived = false;
                     }
                     return;
                 }
@@ -210,6 +260,91 @@ namespace L86_collector
                 nmeaBlock.raw.Add(message_.ToString());
                 switch (message_.MessageType)
                 {
+                    case "EXTRAREF":
+                        if (collectSkew)
+                        {
+                            string captureTime = DateTime.UtcNow.ToString("yyyy/MM/dd HH:mm:ss");
+                            Extraref message = (Extraref)message_;
+                            refErrLog.LogLine(stringMaker("\t", captureTime, "EXTRAREF," + message.channelName));
+                        }
+                        break;
+                    case "REFTIME":
+                        if (collectSkew)
+                        {
+                            string captureTime = DateTime.UtcNow.ToString("yyyy/MM/dd HH:mm:ss");
+                            Reftime message = (Reftime)message_;
+                            refTimeLog.LogLine(stringMaker("\t", captureTime, message.absTime_ticks.ToString()));
+                        }
+                        break;
+                    case "REFCHECK":
+                        if (collectSkew)
+                        {
+                            string captureTime = DateTime.UtcNow.ToString("yyyy/MM/dd HH:mm:ss");
+                            Refcheck message = (Refcheck)message_;
+
+                            switch (message.status)
+                            {
+                                case PpsStatus.OK:
+                                    checkLog.LogLine(stringMaker("\t", captureTime, message.skew_ns.ToString(), message.absTime_ref_ticks.ToString(), message.absTime_check_ticks.ToString()));
+                                    break;
+
+                                case PpsStatus.notPossible:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "not possible"));
+                                    break;
+
+                                case PpsStatus.glitch:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "glitch"));
+                                    break;
+
+                                case PpsStatus.old:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "check is too old"));
+                                    checkLog.LogLine(stringMaker("\t", captureTime, "", message.absTime_ref_ticks.ToString(), message.absTime_check_ticks.ToString()));
+                                    break;
+
+                                case PpsStatus.ppsMissing:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "check is missing"));
+                                    break;
+
+                                case PpsStatus.refMissing:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "ref is missing"));
+                                    checkLog.LogLine(stringMaker("\t", captureTime, "", "", message.absTime_check_ticks.ToString()));
+                                    break;
+
+                                case PpsStatus.unexpected:
+                                    refErrLog.LogLine(stringMaker("\t", captureTime, "unexpected"));
+                                    break;
+
+                                default:
+                                    break;
+                            }
+                        }
+                        break;
+                    case "SKEW":
+                        {
+                            Skew message = (Skew)message_;
+                            nmeaBlock.skewData.packetDelay_ms = message.packetDelay;
+                            nmeaBlock.skewData.skew_ns = message.skew_ns;
+                            nmeaBlock.skewData.absTime_ticks = message.absTime_ticks;
+                            nmeaBlock.skewData.status = message.status;
+                            skewReceived = true;
+                        }
+                        break;
+                    case "SENDAT":
+                        {
+                            SenData message = (SenData)message_;
+                            nmeaBlock.SensorData.temperature_bmp180_C = message.temperature_bmp180_C;
+                            nmeaBlock.SensorData.pressure_Pa = message.pressure_Pa;
+                            nmeaBlock.SensorData.visibleLightIntensity_lx = message.visibleLightIntensity_lx;
+                            nmeaBlock.SensorData.infraredLighIntensity = message.infraredLighIntensity;
+                            nmeaBlock.SensorData.temperature_sht21_C = message.temperature_sht21_C;
+                            nmeaBlock.SensorData.relativeHumidity_percentage = message.relativeHumidity_percentage;
+
+                            nmeaBlock.SensorData.sampleAge_ms = message.sampleAge_ms;
+                            nmeaBlock.SensorData.status = message.status;
+
+                            sensorDataReceived = true;
+                        }
+                        break;
                     case "GPRMC":
                         {
                             Gprmc message = (Gprmc)message_;
@@ -346,7 +481,8 @@ namespace L86_collector
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.OrderBy((x) => x.PRN).ToArray();
                         nmeaBlock.satellitesGalileo = satellitesGalileo.OrderBy((x) => x.PRN).ToArray();
 
-                        if ((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3))
+                        if (((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3)) && (!collectSkew || (skewReceived && sensorDataReceived)))
+                        {
                             if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
                                 && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
                                 queue.Enqueue(nmeaBlock);
@@ -365,6 +501,7 @@ namespace L86_collector
                                 nmeaBlock.valid = false;
                                 queue.Enqueue(nmeaBlock);
                             }
+                        }
 
                         satellitesGPS = new List<SatelliteData>();
                         satellitesGLONASS = new List<SatelliteData>();
@@ -375,12 +512,14 @@ namespace L86_collector
                         {
                             messageChecklist[i] = false;
                         }
+                        skewReceived = false;
+                        sensorDataReceived = false;
                         break;
                     case "GNTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.ToArray();
 
-                        if ((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3))
+                        if (((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3)) && (!collectSkew || (skewReceived && sensorDataReceived)))
                             if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
                             && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
                                 queue.Enqueue(nmeaBlock);
@@ -409,6 +548,8 @@ namespace L86_collector
                         {
                             messageChecklist[i] = false;
                         }
+                        skewReceived = false;
+                        sensorDataReceived = false;
                         break;
                     default:
                         break;
@@ -419,6 +560,9 @@ namespace L86_collector
             {
                 port.MessageReceived -= NmeaMessageReceived;
                 logger.Close();
+                refTimeLog.Close();
+                checkLog.Close();
+                refErrLog.Close();
                 port.Close();
             }
         }
@@ -436,6 +580,17 @@ namespace L86_collector
 
             Console.Write("Label of measurement: ");
             string lable = Console.ReadLine();
+#if DEBUG
+            bool deleteFile;
+            if (lable.Length > 2 && lable.StartsWith("__"))
+            {
+                deleteFile = true;
+                lable = lable.Substring(2);
+            }
+            else
+                deleteFile = false;
+#endif
+
             Console.Write("Work directory: ");
 #if DEBUG
 #if ACER_1
@@ -452,12 +607,19 @@ namespace L86_collector
             {
                 Console.WriteLine("A measurement with this lable already exists in this directory!");
 #if DEBUG
-                Console.WriteLine("Press C for continue (the contents of the folder will be deleted) or Q to quit.");
-                string chIn = Console.ReadLine();
-                if (chIn == "C" || chIn == "c")
+                if (deleteFile)
+                {
                     Directory.Delete(workFolder, true);
+                }
                 else
-                    Environment.Exit(0);
+                {
+                    Console.WriteLine("Press C for continue (the contents of the folder will be deleted) or Q to quit.");
+                    string chIn = Console.ReadLine();
+                    if (chIn == "C" || chIn == "c")
+                        Directory.Delete(workFolder, true);
+                    else
+                        Environment.Exit(0);
+                }
 
 #else
                 Environment.Exit(0);
@@ -476,16 +638,29 @@ namespace L86_collector
             Task.Run(() => logTime(workFolder));
 
             string DAQ_ID;
+            bool collectSkew = false;
             if (isConUsed == "y")
             {
                 Console.Write("Path of setup file: ");
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\testSetup.xml";//Console.ReadLine();
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewTest.xml";//Console.ReadLine();
 
                 XDocument setUpFile;
                 try
                 {
                     setUpFile = XDocument.Load(setUpFilePath);
                     DAQ_ID = setUpFile.Root.Element("DAQ_Device").Element("ID").Value;
+                    string measurementType = setUpFile.Root.Element("measurementType").Value;
+                    switch (measurementType)
+                    {
+                        case "withSkew":
+                            collectSkew = true;
+                            break;
+
+                        case "simple":
+                        default:
+                            collectSkew = false;
+                            break;
+                    }
 
                     List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
 
@@ -495,10 +670,14 @@ namespace L86_collector
                     nmeaTestUnitsList.Add(new NmeaTestUnit(refDev.Element("COM_portNumber").Value, //portNum
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.raw",
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF_Direct.raw",
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.ref",
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.chk",
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF_CHECK.err",
                                             refDev.Element("designation").Value, //designation
                                             refDev.Element("board").Element("ID").Value, //boardID
                                             Convert.ToDouble(refDev.Element("board").Element("height").Value), //W
-                                            Convert.ToDouble(refDev.Element("board").Element("width").Value)));
+                                            Convert.ToDouble(refDev.Element("board").Element("width").Value),
+                                            collectSkew));
 
                     var devs = from x in setUpFile.Root.Element("devices").Elements("device")
                                where x.Attribute("role").Value == "DUT" && x.Attribute("type").Value == "NMEA Test Unit"
@@ -508,10 +687,14 @@ namespace L86_collector
                         nmeaTestUnitsList.Add(new NmeaTestUnit(unit.Element("COM_portNumber").Value, //portNum
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.raw",
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT_Direct.raw",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.ref",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.chk",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT_CHECK.err",
                                             unit.Element("designation").Value, //designation
                                             unit.Element("board").Element("ID").Value, //boardID
                                             Convert.ToDouble(unit.Element("board").Element("height").Value), //W
-                                            Convert.ToDouble(unit.Element("board").Element("width").Value)));
+                                            Convert.ToDouble(unit.Element("board").Element("width").Value),
+                                            collectSkew));
                     }
                     nmeaTestUnits = nmeaTestUnitsList.ToArray();
                 }
@@ -525,6 +708,11 @@ namespace L86_collector
             }
             else
             {
+                Console.WriteLine("Does the setup incorporate skew measurement? (Y/N)");
+                string collectSkew_str = Console.ReadLine().ToLower();
+                if (collectSkew_str == "y")
+                    collectSkew = true;
+
 
                 Console.Write("data acquisition device ID: ");
                 DAQ_ID = Console.ReadLine();
@@ -568,7 +756,17 @@ namespace L86_collector
                 string ref_com = Console.ReadLine();
                 try
                 {
-                    nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com, workFolder + lable + "_" + ref_des + "_REF.raw", workFolder + lable + "_" + ref_des + "_REF_Direct.raw", ref_des, ref_boardID, ref_boardHeight, ref_boardWidth));
+                    nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com,
+                                                           workFolder + lable + "_" + ref_des + "_REF.raw",
+                                                           workFolder + lable + "_" + ref_des + "_REF_Direct.raw",
+                                                           workFolder + lable + "_" + ref_des + "_REF.ref",
+                                                           workFolder + lable + "_" + ref_des + "_REF.chk",
+                                                           workFolder + lable + "_" + ref_des + "_REF_CHECK.err",
+                                                           ref_des,
+                                                           ref_boardID,
+                                                           ref_boardHeight,
+                                                           ref_boardWidth,
+                                                           collectSkew));
                 }
                 catch (Exception)
                 {
@@ -619,7 +817,17 @@ namespace L86_collector
                     string comNum = Console.ReadLine();
                     try
                     {
-                        nmeaTestUnitsList.Add(new NmeaTestUnit(comNum, workFolder + lable + "_" + des + "_DUT.raw", workFolder + lable + "_" + des + "_DUT_Direct.raw", des, boardID, boardHeight, boardWidth));
+                        nmeaTestUnitsList.Add(new NmeaTestUnit(comNum,
+                                                               workFolder + lable + "_" + des + "_DUT.raw",
+                                                               workFolder + lable + "_" + des + "_DUT_Direct.raw",
+                                                               workFolder + lable + "_" + des + "_DUT.ref",
+                                                               workFolder + lable + "_" + des + "_DUT.chk",
+                                                               workFolder + lable + "_" + des + "_DUT_CHECK.err",
+                                                               des,
+                                                               boardID,
+                                                               boardHeight,
+                                                               boardWidth,
+                                                               collectSkew));
                     }
                     catch (Exception)
                     {
@@ -644,6 +852,15 @@ namespace L86_collector
 
                     writer.WriteStartElement("setup");
                     {
+                        writer.WriteStartElement("measurementType");
+                        {
+                            if (collectSkew)
+                                writer.WriteString("withSkew");
+                            else
+                                writer.WriteString("simple");
+                        }
+                        writer.WriteEndElement();
+
                         writer.WriteStartElement("SNR_Deviance_unit");
                         {
                             writer.WriteString("dB");
@@ -880,6 +1097,91 @@ namespace L86_collector
                 while (true) ; //to prevent the compiler from crying beacuse locLog is not initialized
             }
 
+            ThreadedLogger skewLog = null, skewErrLog = null, senLog = null, senErrLog = null;
+            if (collectSkew)
+            {
+                try
+                {
+                    skewLog = new ThreadedLogger(workFolder + lable + ".skw", "skewLog");
+                    skewLog.Start();
+
+
+                    skewLog.Log("time (UTC)");
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        skewLog.Log("\t{0}_skew\t{0}_absTime", nmeaTestUnits[i].designation);
+                    }
+                    skewLog.LogLine();
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine(".skw file init error!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                    while (true) ; //to prevent the compiler from crying beacuse skwLog is not initialized
+                }
+                try
+                {
+                    skewErrLog = new ThreadedLogger(workFolder + lable + "_SKEW.err", "skewErrLog");
+                    skewErrLog.Start();
+
+
+                    skewErrLog.Log("time (UTC)");
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        skewErrLog.Log("\tdevice\ttype", nmeaTestUnits[i].designation);
+                    }
+                    skewErrLog.LogLine();
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("_SKEW.err file init error!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                    while (true) ; //to prevent the compiler from crying beacuse skwErrLog is not initialized
+                }
+
+                try
+                {
+                    senLog = new ThreadedLogger(workFolder + lable + ".sen", "senLog");
+                    senLog.Start();
+
+
+                    senLog.Log("time (UTC)");
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        senLog.Log("\t{0}_tempBmp180\t{0}_pressure\t{0}_visibleLight\t{0}_infraredLight\t{0}_tempSht21\t{0}_relativeHumidity", nmeaTestUnits[i].designation);
+                    }
+                    senLog.LogLine();
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine(".sen file init error!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                    while (true) ; //to prevent the compiler from crying beacuse senLog is not initialized
+                }
+                try
+                {
+                    senErrLog = new ThreadedLogger(workFolder + lable + "_SEN.err", "skewErrLog");
+                    senErrLog.Start();
+
+
+                    senErrLog.Log("time (UTC)");
+                    for (int i = 0; i < nmeaTestUnits.Length; i++)
+                    {
+                        senErrLog.Log("\tdevice\ttype", nmeaTestUnits[i].designation);
+                    }
+                    senErrLog.LogLine();
+                }
+                catch (Exception)
+                {
+                    Console.WriteLine("_SEN.err file init error!");
+                    Console.ReadLine();
+                    Environment.Exit(0);
+                    while (true) ; //to prevent the compiler from crying beacuse senErrLog is not initialized
+                }
+            }
 
             //empty queues
             foreach (NmeaTestUnit unit in nmeaTestUnits)
@@ -904,7 +1206,7 @@ namespace L86_collector
                 //if (i % 10 == 0)
                 //{
                 Console.Clear();
-                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused)
+                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)))
                 {
                     TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
                     Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
@@ -929,6 +1231,13 @@ namespace L86_collector
                                 errLog.Pause(new TimeSpan(0, minToWait, 0));
                                 locLog.Pause(new TimeSpan(0, minToWait, 0));
                                 logLog.Pause(new TimeSpan(0, minToWait, 0));
+                                if (collectSkew)
+                                {
+                                    skewLog.Pause(new TimeSpan(0, minToWait, 0));
+                                    skewErrLog.Pause(new TimeSpan(0, minToWait, 0));
+                                    senLog.Pause(new TimeSpan(0, minToWait, 0));
+                                    senErrLog.Pause(new TimeSpan(0, minToWait, 0));
+                                }
 
                                 resumeTime = DateTime.UtcNow.AddMinutes(minToWait);
                                 Console.WriteLine("\nLogging paused for {0} minutes.", minToWait);
@@ -942,6 +1251,13 @@ namespace L86_collector
                                 errLog.ReStart();
                                 locLog.ReStart();
                                 logLog.ReStart();
+                                if (collectSkew)
+                                {
+                                    skewLog.ReStart();
+                                    skewErrLog.ReStart();
+                                    senLog.ReStart();
+                                    senErrLog.ReStart();
+                                }
                                 Console.WriteLine("\nLogging was restarted.");
                             }
                             break;
@@ -958,7 +1274,7 @@ namespace L86_collector
                     while (nmeaTestUnits[j].queue.Count == 0)
                     {
                         if (terminationEventSignal.IsCancellationRequested)
-                            return;
+                            goto TerminationSequence;
 
                         Thread.Sleep(100);
                     }
@@ -968,8 +1284,8 @@ namespace L86_collector
                 }
                 NmeaBlock refBlock = currentNmeaBlocks[0];
 
-                string datF, devF, locF;
-                datF = devF = locF = currentTime.ToString("yyyy/MM/dd HH:mm:ss");
+                string datF, devF, locF, skewF, senF;
+                datF = devF = locF = skewF = senF = currentTime.ToString("yyyy/MM/dd HH:mm:ss");
                 List<string> errF = new List<string>();
                 StringBuilder logF = new StringBuilder();
                 StringWriter logFWriter = new StringWriter(logF);
@@ -1016,7 +1332,7 @@ namespace L86_collector
                             }
                             while (!nmeaTestUnits[0].queue.TryDequeue(out currentNmeaBlocks[0]))
                                 Thread.Yield();
-                            blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
+                            blockXmler(refBlock, collectSkew, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                         }
                         errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
                         datF = stringMaker("\t", datF, datFileString());
@@ -1027,12 +1343,93 @@ namespace L86_collector
                             Thread.Yield();
                         datF = stringMaker("\t", datF, datFileString(refBlock));
                         locF = stringMaker("\t", locF, locFileString(refBlock));
-                        blockXmler(refBlock, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
+                        blockXmler(refBlock, collectSkew, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                     }
+
+                    if (collectSkew)
+                    {
+                        if ((refBlock.time == currentTime) && refBlock.skewData.status == PpsStatus.OK)
+                            skewF = stringMaker("\t", skewF, skewFileString(refBlock));
+                        else //skew error
+                        {
+                            if (refBlock.time == currentTime)
+                            {
+                                string errorString;
+                                switch (refBlock.skewData.status)
+                                {
+                                    case PpsStatus.notPossible:
+                                        errorString = "notPossible";
+                                        skewF = stringMaker("\t", skewF, skewFileString());
+                                        break;
+
+                                    case PpsStatus.glitch:
+                                        errorString = "glitch";
+                                        skewF = stringMaker("\t", skewF, skewFileString());
+                                        break;
+
+                                    case PpsStatus.old:
+                                        errorString = "old";
+                                        skewF = stringMaker("\t", skewF, skewFileString(refBlock, true));
+                                        break;
+
+                                    case PpsStatus.ppsMissing:
+                                        errorString = "ppsMissing";
+                                        skewF = stringMaker("\t", skewF, skewFileString());
+                                        break;
+
+                                    case PpsStatus.refMissing:
+                                        errorString = "refMissing";
+                                        skewF = stringMaker("\t", skewF, skewFileString(refBlock, true));
+                                        break;
+
+                                    case PpsStatus.unexpected:
+                                        errorString = "unexpected";
+                                        skewF = stringMaker("\t", skewF, skewFileString());
+                                        break;
+
+                                    default:
+                                        errorString = "default???" + refBlock.skewData.status.ToString();
+                                        skewF = stringMaker("\t", skewF, skewFileString());
+                                        break;
+                                }
+                                skewErrLog.LogLine(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errorString));
+                            }
+                            else
+                            {
+                                skewF = stringMaker("\t", skewF, skewFileString());
+                            }
+                        }
+
+                        if ((refBlock.time == currentTime) && refBlock.SensorData.status == SenDataStatus.OK)
+                            senF = stringMaker("\t", senF, senFileString(refBlock));
+                        else //sen error
+                        {
+                            senF = stringMaker("\t", senF, senFileString());
+
+                            if (refBlock.time == currentTime)
+                            {
+                                string errorString;
+                                switch (refBlock.SensorData.status)
+                                {
+                                    case SenDataStatus.old:
+                                        errorString = "old";
+                                        break;
+                                    case SenDataStatus.invalid:
+                                        errorString = "invalid";
+                                        break;
+                                    default:
+                                        errorString = "default???" + refBlock.SensorData.status.ToString();
+                                        break;
+                                }
+                                senErrLog.LogLine(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errorString));
+                            }
+                        }
+                    }
+
                     for (int j = 1; j < nmeaTestUnits.Length; j++)
                     {
                         NmeaBlock block = currentNmeaBlocks[j];
-                        if (!block.valid || (block.time != currentTime) || (block.fixType != FixType.Fix3D))
+                        if (!block.valid || (block.time != currentTime) || (block.fixType != FixType.Fix3D)) //if the block is invalid
                         {
                             string errorStr;
                             int code;
@@ -1059,7 +1456,7 @@ namespace L86_collector
                                 while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
                                     Thread.Yield();
 
-                                blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
+                                blockXmler(block, collectSkew, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                             }
                             errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(5, '0')));
                             datF = stringMaker("\t", datF, datFileString());
@@ -1072,7 +1469,87 @@ namespace L86_collector
                             datF = stringMaker("\t", datF, datFileString(block));
                             locF = stringMaker("\t", locF, locFileString(block));
                             devF = stringMaker("\t", devF, refValid ? devFileString(refBlock, currentNmeaBlocks[j]) : devFileString());
-                            blockXmler(block, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
+                            blockXmler(block, collectSkew, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
+                        }
+
+                        if (collectSkew)
+                        {
+                            if ((block.time == currentTime) && block.skewData.status == PpsStatus.OK)
+                                skewF = stringMaker("\t", skewF, skewFileString(block));
+                            else //skew error
+                            {
+                                if (block.time == currentTime)
+                                {
+                                    string errorString;
+                                    switch (block.skewData.status)
+                                    {
+                                        case PpsStatus.notPossible:
+                                            errorString = "notPossible";
+                                            skewF = stringMaker("\t", skewF, skewFileString());
+                                            break;
+
+                                        case PpsStatus.glitch:
+                                            errorString = "glitch";
+                                            skewF = stringMaker("\t", skewF, skewFileString());
+                                            break;
+
+                                        case PpsStatus.old:
+                                            errorString = "old";
+                                            skewF = stringMaker("\t", skewF, skewFileString(block, true));
+                                            break;
+
+                                        case PpsStatus.ppsMissing:
+                                            errorString = "ppsMissing";
+                                            skewF = stringMaker("\t", skewF, skewFileString());
+                                            break;
+
+                                        case PpsStatus.refMissing:
+                                            errorString = "refMissing";
+                                            skewF = stringMaker("\t", skewF, skewFileString(block, true));
+                                            break;
+
+                                        case PpsStatus.unexpected:
+                                            errorString = "unexpected";
+                                            skewF = stringMaker("\t", skewF, skewFileString());
+                                            break;
+
+                                        default:
+                                            errorString = "default???" + block.skewData.status.ToString();
+                                            skewF = stringMaker("\t", skewF, skewFileString());
+                                            break;
+                                    }
+                                    skewErrLog.LogLine(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorString));
+                                }
+                                else
+                                {
+                                    skewF = stringMaker("\t", skewF, skewFileString());
+                                }
+                            }
+
+                            if ((block.time == currentTime) && block.SensorData.status == SenDataStatus.OK)
+                                senF = stringMaker("\t", senF, senFileString(block));
+                            else //sen error
+                            {
+                                senF = stringMaker("\t", senF, senFileString());
+
+                                if (block.time == currentTime)
+                                {
+                                    string errorString;
+                                    switch (block.SensorData.status)
+                                    {
+                                        case SenDataStatus.old:
+                                            errorString = "old";
+                                            break;
+                                        case SenDataStatus.invalid:
+                                            errorString = "invalid";
+                                            break;
+                                        default:
+                                            errorString = "default???" + block.SensorData.status.ToString();
+                                            break;
+                                    }
+                                    senErrLog.LogLine(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorString));
+                                }
+                            }
                         }
 
                     }
@@ -1085,13 +1562,21 @@ namespace L86_collector
                 {
                     if (refValid)
                         devLog.LogLine(devF);
-                    if (datF != "")
+                    if (datF.Split("\t".ToCharArray(), StringSplitOptions.RemoveEmptyEntries).Length > 1)
                         datLog.LogLine(datF);
-                    if (locF != "")
+                    if (locF.Split("\t".ToCharArray(), StringSplitOptions.RemoveEmptyEntries).Length > 1)
                         locLog.LogLine(locF);
                     if (errF.Count > 0)
                         errLog.LogLine(String.Join("\r\n", errF));
                     logLog.Log(logF.ToString());
+
+                    if (collectSkew)
+                    {
+                        if (skewF.Split("\t".ToCharArray(), StringSplitOptions.RemoveEmptyEntries).Length > 1)
+                            skewLog.LogLine(skewF);
+                        if (senF.Split("\t".ToCharArray(), StringSplitOptions.RemoveEmptyEntries).Length > 1)
+                            senLog.LogLine(senF);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -1104,6 +1589,7 @@ namespace L86_collector
                         throw e;
                 }
             }
+            TerminationSequence:
             foreach (var unit in nmeaTestUnits)
             {
                 unit.Close();
@@ -1113,6 +1599,13 @@ namespace L86_collector
             locLog.Close();
             logLog.Close();
             errLog.Close();
+            if (collectSkew)
+            {
+                skewLog.Close();
+                skewErrLog.Close();
+                senLog.Close();
+                senErrLog.Close();
+            }
             #endregion
         }
 
@@ -1193,12 +1686,63 @@ namespace L86_collector
             return "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
         }
 
+        static string skewFileString(NmeaBlock nmeaBlock)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.AppendFormat("{0}\t{1}",
+                                        nmeaBlock.skewData.skew_ns,
+                                        nmeaBlock.skewData.absTime_ticks
+                                        );
+
+            return builder.ToString();
+        }
+        static string skewFileString(NmeaBlock nmeaBlock, bool noSkew)
+        {
+            if (noSkew)
+            {
+                StringBuilder builder = new StringBuilder();
+                builder.AppendFormat("\t{0}",
+                                            nmeaBlock.skewData.absTime_ticks
+                                            );
+
+                return builder.ToString();
+            }
+            else
+            {
+                return skewFileString(nmeaBlock);
+            }
+        }
+        static string skewFileString()
+        {
+            return "\t";
+        }
+
+        static string senFileString(NmeaBlock nmeaBlock)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.AppendFormat("{0}\t{1}\t{2}\t{3}\t{4}\t{5}",
+                                        nmeaBlock.SensorData.temperature_bmp180_C,
+                                        nmeaBlock.SensorData.pressure_Pa,
+                                        nmeaBlock.SensorData.visibleLightIntensity_lx,
+                                        nmeaBlock.SensorData.infraredLighIntensity,
+                                        nmeaBlock.SensorData.temperature_sht21_C,
+                                        nmeaBlock.SensorData.relativeHumidity_percentage
+                                        );
+
+            return builder.ToString();
+        }
+        static string senFileString()
+        {
+            return "\t\t\t\t\t";
+        }
+
+
         static string stringMaker(string separator, params string[] strings)
         {
             return String.Join(separator, strings);
         }
 
-        static void blockXmler(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID, string boardID, double boardHeigth, double boardWidth)
+        static void blockXmler(NmeaBlock block, bool skewAvailable, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID, string boardID, double boardHeigth, double boardWidth)
         {
             writer.WriteStartElement("receiver");
             {
@@ -1447,6 +1991,137 @@ namespace L86_collector
                 }
                 writer.WriteEndElement();
 
+                if (skewAvailable)
+                {
+                    writer.WriteStartElement("skew");
+                    {
+                        switch (block.skewData.status)
+                        {
+                            case PpsStatus.OK:
+                                writer.WriteAttributeString("status", "OK");
+                                break;
+
+                            case PpsStatus.old:
+                                writer.WriteAttributeString("status", "old");
+                                break;
+
+                            case PpsStatus.glitch:
+                                writer.WriteAttributeString("status", "glitch");
+                                break;
+
+                            case PpsStatus.ppsMissing:
+                                writer.WriteAttributeString("status", "ppsMissing");
+                                break;
+
+                            case PpsStatus.refMissing:
+                                writer.WriteAttributeString("status", "refMissing");
+                                break;
+
+                            case PpsStatus.notPossible:
+                                writer.WriteAttributeString("status", "notPossible");
+                                break;
+
+                            case PpsStatus.unexpected:
+                                writer.WriteAttributeString("status", "unexpected");
+                                break;
+                        }
+
+                        writer.WriteStartElement("skew");
+                        {
+                            writer.WriteAttributeString("unit", "ns");
+                            writer.WriteString(block.skewData.skew_ns.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("absoluteTime");
+                        {
+                            writer.WriteAttributeString("unit", "ticks");
+                            writer.WriteString(block.skewData.absTime_ticks.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("packetDelay");
+                        {
+                            writer.WriteAttributeString("unit", "ms");
+                            writer.WriteString(block.skewData.packetDelay_ms.ToString());
+                        }
+                        writer.WriteEndElement();
+                    }
+                    writer.WriteEndElement();
+
+                    writer.WriteStartElement("sensorData");
+                    {
+                        switch (block.SensorData.status)
+                        {
+                            case SenDataStatus.OK:
+                                writer.WriteAttributeString("status", "OK");
+                                break;
+
+                            case SenDataStatus.old:
+                                writer.WriteAttributeString("status", "old");
+                                break;
+
+                            case SenDataStatus.invalid:
+                                writer.WriteAttributeString("status", "invalid");
+                                break;
+                        }
+
+                        writer.WriteStartElement("temperature");
+                        {
+                            writer.WriteStartElement("bmp180");
+                            {
+                                writer.WriteAttributeString("unit", "C");
+                                writer.WriteString(block.SensorData.temperature_bmp180_C.ToString());
+                            }
+                            writer.WriteEndElement();
+
+                            writer.WriteStartElement("sht21");
+                            {
+                                writer.WriteAttributeString("unit", "C");
+                                writer.WriteString(block.SensorData.temperature_sht21_C.ToString());
+                            }
+                            writer.WriteEndElement();
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("pressure");
+                        {
+                            writer.WriteAttributeString("unit", "Pa");
+                            writer.WriteString(block.SensorData.pressure_Pa.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("visibleLightIntensity");
+                        {
+                            writer.WriteAttributeString("unit", "lx");
+                            writer.WriteString(block.SensorData.visibleLightIntensity_lx.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("infraredLightIntensity");
+                        {
+                            writer.WriteAttributeString("unit", "unknown");
+                            writer.WriteString(block.SensorData.infraredLighIntensity.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("relativeHumidity");
+                        {
+                            writer.WriteAttributeString("unit", "%");
+                            writer.WriteString(block.SensorData.relativeHumidity_percentage.ToString());
+                        }
+                        writer.WriteEndElement();
+
+                        writer.WriteStartElement("sampleAge");
+                        {
+                            writer.WriteAttributeString("unit", "ms");
+                            writer.WriteString(block.SensorData.sampleAge_ms.ToString());
+                        }
+                        writer.WriteEndElement();
+                    }
+                    writer.WriteEndElement();
+                }
+
                 writer.WriteStartElement("raw");
                 {
                     foreach (string message in block.raw)
@@ -1485,6 +2160,10 @@ namespace L86_collector
                 writer.WriteEndElement();
             }
             writer.WriteEndElement();
+        }
+        static void blockXmler_simple(NmeaBlock block, XmlTextWriter writer, string deviceDesignation, string deviceRole, int deviceID, string boardID, double boardHeigth, double boardWidth)
+        {
+            blockXmler(block, false, writer, deviceDesignation, deviceRole, deviceID, boardID, boardHeigth, boardWidth);
         }
 
         static void satelliteDateXmler(SatelliteData satelliteData, XmlTextWriter writer, string GNSS)
