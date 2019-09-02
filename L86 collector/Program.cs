@@ -1128,12 +1128,7 @@ namespace L86_collector
                     skewErrLog.Start();
 
 
-                    skewErrLog.Log("time (UTC)");
-                    for (int i = 0; i < nmeaTestUnits.Length; i++)
-                    {
-                        skewErrLog.Log("\tdevice\ttype", nmeaTestUnits[i].designation);
-                    }
-                    skewErrLog.LogLine();
+                    skewErrLog.LogLine("time (UTC)\tdevice\ttype");
                 }
                 catch (Exception)
                 {
@@ -1168,13 +1163,7 @@ namespace L86_collector
                     senErrLog = new ThreadedLogger(workFolder + lable + "_SEN.err", "skewErrLog");
                     senErrLog.Start();
 
-
-                    senErrLog.Log("time (UTC)");
-                    for (int i = 0; i < nmeaTestUnits.Length; i++)
-                    {
-                        senErrLog.Log("\tdevice\ttype", nmeaTestUnits[i].designation);
-                    }
-                    senErrLog.LogLine();
+                    senErrLog.LogLine("time (UTC)\tdevice\ttype");
                 }
                 catch (Exception)
                 {
