@@ -476,6 +476,9 @@ namespace L86_collector
                         }
                         break;
                     case "GNZDA":
+                        if (nmeaBlock.numberOfTrackedSatellites == 12)
+                            nmeaBlock.numberOfTrackedSatellites = nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo;
+                        goto case "GPTXT";
                     case "GPTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.OrderBy((x) => x.PRN).ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.OrderBy((x) => x.PRN).ToArray();
@@ -644,7 +647,7 @@ namespace L86_collector
             if (isConUsed == "y")
             {
                 Console.Write("Path of setup file: ");
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewTest.xml";//Console.ReadLine();
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewMeas_I.xml";//Console.ReadLine();
 
                 XDocument setUpFile;
                 try

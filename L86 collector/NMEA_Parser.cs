@@ -616,7 +616,10 @@ namespace NMEA_Parser
                                         }
                                         else
                                         {
-                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                            if (tokens[1].Length == 10)
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                            else
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
                                         }
                                     }
                                     else
@@ -679,7 +682,10 @@ namespace NMEA_Parser
                                         }
                                         else
                                         {
-                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                            if (tokens[1].Length == 10)
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                            else
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
                                         }
                                     }
                                     else
