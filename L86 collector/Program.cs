@@ -600,6 +600,8 @@ namespace L86_collector
             string folder = @"C:\Users\Adam\Desktop\GND Size Study\";
 #elif DELL_2
             string folder = @"C:\Users\Adam-MIT\Desktop\Measurements\";
+#elif MIT_PC_1 
+            string folder = @"C:\Users\hollos\Desktop\Skew Measurement\";
 #else
             string folder = Console.ReadLine();
 #endif
@@ -647,8 +649,15 @@ namespace L86_collector
             if (isConUsed == "y")
             {
                 Console.Write("Path of setup file: ");
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewMeas_I.xml";//Console.ReadLine();
-
+#if DEBUG
+#if ACER_1
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewMeas_I.xml";
+#else
+                string setUpFilePath = Console.ReadLine();
+#endif
+#else
+                string setUpFilePath = Console.ReadLine();
+#endif
                 XDocument setUpFile;
                 try
                 {
@@ -1187,9 +1196,9 @@ namespace L86_collector
             }
             running = true;
             DateTime startTime = DateTime.UtcNow;
-            #endregion
+#endregion
 
-            #region new
+#region new
             DateTime resumeTime = DateTime.UtcNow;
 
             ThreadedLogger logLog;
@@ -1600,7 +1609,7 @@ namespace L86_collector
                 senLog.Close();
                 senErrLog.Close();
             }
-            #endregion
+#endregion
         }
 
         static string datFileString(NmeaBlock nmeaBlock)
@@ -2268,7 +2277,7 @@ namespace L86_collector
             }
         }
 
-        #region Trap application termination
+#region Trap application termination
 
         static CancellationTokenSource terminationEventSignal = new CancellationTokenSource();
 
@@ -2294,7 +2303,7 @@ namespace L86_collector
                 SpinWait.SpinUntil(() => false);
             return true;
         }
-        #endregion
+#endregion
 
         private static string GetMD5()
         {
