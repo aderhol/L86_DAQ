@@ -14,6 +14,7 @@ using System.Xml.Linq;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using CustumLoggers;
+using PpsCardDelivery;
 
 namespace L86_collector
 {
@@ -233,7 +234,6 @@ namespace L86_collector
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
-
                 NmeaDevice device = (NmeaDevice)sender_;
                 NmeaMessage message_ = ((NmeaMessageReceivedEventArgs)args_).Message;
                 if (!init)
@@ -645,13 +645,16 @@ namespace L86_collector
             Task.Run(() => logTime(workFolder));
 
             string DAQ_ID;
-            bool collectSkew = false;
+            bool collectSkew = false, ppsCardUsed = false;
+            PpsCard ppsCard = null;
             if (isConUsed == "y")
             {
                 Console.Write("Path of setup file: ");
 #if DEBUG
 #if ACER_1
                 string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewMeas_I.xml";
+#elif MIT_PC_1
+                string setUpFilePath = @"C:\Users\hollos\Desktop\Skew Measurement\Setup.xml";
 #else
                 string setUpFilePath = Console.ReadLine();
 #endif
@@ -676,10 +679,36 @@ namespace L86_collector
                             break;
                     }
 
+                    var ppsDev = from x in setUpFile.Root.Element("devices").Elements("device")
+                                 where x.Attribute("type").Value == "PPS card"
+                                 select x;
+
+                    if (ppsDev.Count() == 1)
+                    {
+                        try
+                        {
+                            ppsCard = new PpsCard(ppsDev.First().Element("COM_portNumber").Value,
+                                                  workFolder + lable + "_ref.dly",
+                                                  workFolder + lable + "_ref_delay_Direct.raw");
+                        }
+                        catch
+                        {
+                            Console.WriteLine("PPS card COM port error!");
+                            Console.ReadLine();
+                            Environment.Exit(0);
+                        }
+
+                        ppsCardUsed = true;
+                    }
+                    else if (ppsDev.Count() > 1)
+                    {
+                        throw new Exception("more than one PPS card");
+                    }
+
                     List<NmeaTestUnit> nmeaTestUnitsList = new List<NmeaTestUnit>();
 
                     var refDev = (from x in setUpFile.Root.Element("devices").Elements("device")
-                                  where x.Attribute("role").Value == "reference" && x.Attribute("type").Value == "NMEA Test Unit"
+                                  where x.Attribute("type").Value == "NMEA Test Unit" && x.Attribute("role").Value == "reference"
                                   select x).First();
                     nmeaTestUnitsList.Add(new NmeaTestUnit(refDev.Element("COM_portNumber").Value, //portNum
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.raw",
@@ -694,7 +723,7 @@ namespace L86_collector
                                             collectSkew));
 
                     var devs = from x in setUpFile.Root.Element("devices").Elements("device")
-                               where x.Attribute("role").Value == "DUT" && x.Attribute("type").Value == "NMEA Test Unit"
+                               where  x.Attribute("type").Value == "NMEA Test Unit" && x.Attribute("role").Value == "DUT"
                                select x;
                     foreach (var unit in devs)
                     {
@@ -722,6 +751,30 @@ namespace L86_collector
             }
             else
             {
+
+                Console.WriteLine("Does the setup incorporate a PPS card? (Y/N)");
+                string ppsCard_str = Console.ReadLine().ToLower();
+                if (ppsCard_str == "y")
+                {
+                    Console.Write("Specify the COM port number of the PPS card: ");
+                    string ppsCard_com = Console.ReadLine();
+
+                    try
+                    {
+                        ppsCard = new PpsCard(ppsCard_com,
+                                              workFolder + lable + "_ref.dly",
+                                              workFolder + lable + "_ref_delay_Direct.raw");
+                    }
+                    catch
+                    {
+                        Console.WriteLine("PPS card COM port error!");
+                        Console.ReadLine();
+                        Environment.Exit(0);
+                    }
+
+                    ppsCardUsed = true;
+                }
+
                 Console.WriteLine("Does the setup incorporate skew measurement? (Y/N)");
                 string collectSkew_str = Console.ReadLine().ToLower();
                 if (collectSkew_str == "y")
@@ -919,6 +972,21 @@ namespace L86_collector
 
                         writer.WriteStartElement("devices");
                         {
+                            if (ppsCardUsed)
+                            {
+                                writer.WriteStartElement("device");
+                                {
+                                    writer.WriteAttributeString("type", "PPS card");
+
+                                    writer.WriteStartElement("COM_portNumber");
+                                    {
+                                        writer.WriteString(ppsCard.portNum);
+                                    }
+                                    writer.WriteEndElement();
+                                }
+                                writer.WriteEndElement();
+                            }
+
                             writer.WriteStartElement("device");
                             {
                                 writer.WriteAttributeString("role", "reference");
@@ -1196,9 +1264,9 @@ namespace L86_collector
             }
             running = true;
             DateTime startTime = DateTime.UtcNow;
-#endregion
+            #endregion
 
-#region new
+            #region new
             DateTime resumeTime = DateTime.UtcNow;
 
             ThreadedLogger logLog;
@@ -1234,6 +1302,12 @@ namespace L86_collector
                                 errLog.Pause(new TimeSpan(0, minToWait, 0));
                                 locLog.Pause(new TimeSpan(0, minToWait, 0));
                                 logLog.Pause(new TimeSpan(0, minToWait, 0));
+
+                                if (ppsCardUsed)
+                                {
+                                    ppsCard.Pause(new TimeSpan(0, minToWait, 0));
+                                }
+
                                 if (collectSkew)
                                 {
                                     skewLog.Pause(new TimeSpan(0, minToWait, 0));
@@ -1254,6 +1328,12 @@ namespace L86_collector
                                 errLog.ReStart();
                                 locLog.ReStart();
                                 logLog.ReStart();
+
+                                if (ppsCardUsed)
+                                {
+                                    ppsCard.ReStart();
+                                }
+
                                 if (collectSkew)
                                 {
                                     skewLog.ReStart();
@@ -1602,6 +1682,12 @@ namespace L86_collector
             locLog.Close();
             logLog.Close();
             errLog.Close();
+
+            if (ppsCardUsed)
+            {
+                ppsCard.Close();
+            }
+
             if (collectSkew)
             {
                 skewLog.Close();
@@ -1609,7 +1695,7 @@ namespace L86_collector
                 senLog.Close();
                 senErrLog.Close();
             }
-#endregion
+            #endregion
         }
 
         static string datFileString(NmeaBlock nmeaBlock)
@@ -2277,7 +2363,7 @@ namespace L86_collector
             }
         }
 
-#region Trap application termination
+        #region Trap application termination
 
         static CancellationTokenSource terminationEventSignal = new CancellationTokenSource();
 
@@ -2303,7 +2389,7 @@ namespace L86_collector
                 SpinWait.SpinUntil(() => false);
             return true;
         }
-#endregion
+        #endregion
 
         private static string GetMD5()
         {

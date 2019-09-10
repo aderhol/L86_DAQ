@@ -386,6 +386,27 @@ namespace NMEA_Parser
         }
     }
 
+    public class PpsInfo : NmeaMessage
+    {
+        public double delay { get; }
+        public double average_90 { get; }
+        public double average_500 { get; }
+        public double average_1000 { get; }
+        public double temperature { get; }
+
+        public PpsInfo(string rawMessage, double delay, double delay_A90, double delay_A500, double delay_A1000, double temperature) : base(rawMessage, "GPINF")
+        {
+            this.delay = delay / 2;
+
+            this.average_90 = delay_A90 / 2;
+            this.average_500 = delay_A500 / 2;
+            this.average_1000 = delay_A1000 / 2;
+
+            this.temperature = temperature;
+        }
+    }
+
+
     public class NmeaMessageReceivedEventArgs : EventArgs
     {
         public NmeaMessage Message { get; }
@@ -541,7 +562,7 @@ namespace NMEA_Parser
                     {
                         checksum ^= (byte)message[i];
                     }
-                    if (checksum != checksum_ref)
+                    if (!message.StartsWith("GPINF") && checksum != checksum_ref)
                         continue;
 
                     string[] tokens = message.Split(',');
@@ -1407,6 +1428,73 @@ namespace NMEA_Parser
                                 }
 
                                 MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180, pressure, visibleLightIntensity, infraredLighIntensity, temperature_sht21, relativeHumidity, sampleAge, status)));
+                            }
+                            break;
+
+                        case "GPINF":
+                            {
+                                if (tokens.Length != 6)
+                                    break;
+
+                                bool OK = true;
+
+                                double delay = double.NaN;
+                                try
+                                {
+                                    delay = Convert.ToDouble(tokens[1].Substring("DELAY=".Length));
+                                }
+                                catch
+                                {
+                                    OK = false;
+                                }
+
+                                double delay_A90 = double.NaN;
+                                if (OK)
+                                    try
+                                    {
+                                        delay_A90 = Convert.ToDouble(tokens[2].Substring("A90=".Length));
+                                    }
+                                    catch
+                                    {
+                                        OK = false;
+                                    }
+
+                                double delay_A500 = double.NaN;
+                                if (OK)
+                                    try
+                                    {
+                                        delay_A500 = Convert.ToDouble(tokens[3].Substring("A500=".Length));
+                                    }
+                                    catch
+                                    {
+                                        OK = false;
+                                    }
+
+                                double delay_A1000 = double.NaN;
+                                if (OK)
+                                    try
+                                    {
+                                        delay_A1000 = Convert.ToDouble(tokens[4].Substring("A1000=".Length));
+                                    }
+                                    catch
+                                    {
+                                        OK = false;
+                                    }
+
+                                double temperature = double.NaN;
+                                if (OK)
+                                    try
+                                    {
+                                        temperature = Convert.ToDouble(tokens[5].Substring("TEMPERATURE=".Length));
+                                    }
+                                    catch
+                                    {
+                                        OK = false;
+                                    }
+
+                                if (OK)
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new PpsInfo(raw, delay, delay_A90, delay_A500, delay_A1000, temperature)));
+
                             }
                             break;
 
