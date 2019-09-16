@@ -38,7 +38,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.0";
+        private const string SoftwareVersion = "V5.2";
 
         static bool running = false;
         enum FixQuality
