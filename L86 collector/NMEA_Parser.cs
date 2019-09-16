@@ -562,7 +562,7 @@ namespace NMEA_Parser
                     {
                         checksum ^= (byte)message[i];
                     }
-                    if (!message.StartsWith("GPINF") && checksum != checksum_ref)
+                    if (checksum != checksum_ref)
                         continue;
 
                     string[] tokens = message.Split(',');
