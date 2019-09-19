@@ -38,7 +38,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.2";
+        private const string SoftwareVersion = "V5.3";
 
         static bool running = false;
         enum FixQuality
@@ -231,6 +231,8 @@ namespace L86_collector
                     refErrLog.Start();
                     refErrLog.LogLine("Capture Time (UTC)\ttype");
                 }
+
+                Paused = false;
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
@@ -559,6 +561,32 @@ namespace L86_collector
                 }
             }
 
+            public bool Paused { get; private set; }
+            public void PauseLoggers(TimeSpan time)
+            {
+                logger.Pause(time);
+                if (collectSkew)
+                {
+                    refTimeLog.Pause(time);
+                    checkLog.Pause(time);
+                    refErrLog.Pause(time);
+                }
+
+                Paused = true;
+            }
+
+            public void ResumeLoggers()
+            {
+                logger.ReStart();
+                if (collectSkew)
+                {
+                    refTimeLog.ReStart();
+                    checkLog.ReStart();
+                    refErrLog.ReStart();
+                }
+                Paused = false;
+            }
+
             public void Close()
             {
                 port.MessageReceived -= NmeaMessageReceived;
@@ -723,7 +751,7 @@ namespace L86_collector
                                             collectSkew));
 
                     var devs = from x in setUpFile.Root.Element("devices").Elements("device")
-                               where  x.Attribute("type").Value == "NMEA Test Unit" && x.Attribute("role").Value == "DUT"
+                               where x.Attribute("type").Value == "NMEA Test Unit" && x.Attribute("role").Value == "DUT"
                                select x;
                     foreach (var unit in devs)
                     {
@@ -1277,7 +1305,12 @@ namespace L86_collector
                 //if (i % 10 == 0)
                 //{
                 Console.Clear();
-                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)))
+                bool unitsPaused = false;
+                foreach (NmeaTestUnit unit in nmeaTestUnits)
+                {
+                    unitsPaused |= unit.Paused;
+                }
+                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)) || unitsPaused)
                 {
                     TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
                     Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
@@ -1294,7 +1327,7 @@ namespace L86_collector
                 {
                     switch (Console.ReadKey(true).Key)
                     {
-                        case ConsoleKey.F2:
+                        case ConsoleKey.F2: //pause
                             {
                                 const int minToWait = 10;
                                 devLog.Pause(new TimeSpan(0, minToWait, 0));
@@ -1302,6 +1335,11 @@ namespace L86_collector
                                 errLog.Pause(new TimeSpan(0, minToWait, 0));
                                 locLog.Pause(new TimeSpan(0, minToWait, 0));
                                 logLog.Pause(new TimeSpan(0, minToWait, 0));
+
+                                foreach (NmeaTestUnit unit in nmeaTestUnits)
+                                {
+                                    unit.PauseLoggers(new TimeSpan(0, minToWait, 0));
+                                }
 
                                 if (ppsCardUsed)
                                 {
@@ -1321,13 +1359,18 @@ namespace L86_collector
                             }
                             break;
 
-                        case ConsoleKey.F10:
+                        case ConsoleKey.F10: //resume
                             {
                                 devLog.ReStart();
                                 datLog.ReStart();
                                 errLog.ReStart();
                                 locLog.ReStart();
                                 logLog.ReStart();
+
+                                foreach (NmeaTestUnit unit in nmeaTestUnits)
+                                {
+                                    unit.ResumeLoggers();
+                                }
 
                                 if (ppsCardUsed)
                                 {

@@ -42,7 +42,7 @@ namespace PpsCardDelivery
             {
                 PpsInfo message = (PpsInfo)message_;
                 logger.LogLine("{0}\t{1}\t{2}\t{3}\t{4}\t{5}",
-                               time.ToString(),
+                               time.ToString("yyyy/MM/dd HH:mm:ss"),
                                message.delay,
                                message.average_90,
                                message.average_500,
