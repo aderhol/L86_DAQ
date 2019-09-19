@@ -551,7 +551,7 @@ namespace NMEA_Parser
 
                     int starIndex = raw.IndexOf('*');
                     if (starIndex == -1)
-                        continue;   //* was not found
+                        continue;   //the char * was not found
                     byte checksum_ref;
                     if (!byte.TryParse(raw.Substring(starIndex + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out checksum_ref))
                         continue;
@@ -575,7 +575,7 @@ namespace NMEA_Parser
                         GpgsvRaw += ((GpgsvRaw == "") ? ("") : ("\r\n")) + raw;
                         Gpgsv_count++;
                     }
-                    else
+                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Gpgsv_count = 0;
                         Gpgsv_sat = new List<SatelliteVehicle>();
@@ -587,7 +587,7 @@ namespace NMEA_Parser
                         GlgsvRaw += ((GlgsvRaw == "") ? ("") : ("\r\n")) + raw;
                         Glgsv_count++;
                     }
-                    else
+                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Glgsv_count = 0;
                         Glgsv_sat = new List<SatelliteVehicle>();
@@ -599,7 +599,7 @@ namespace NMEA_Parser
                         GagsvRaw += ((GagsvRaw == "") ? ("") : ("\r\n")) + raw;
                         Gagsv_count++;
                     }
-                    else
+                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Gagsv_count = 0;
                         Gagsv_sat = new List<SatelliteVehicle>();

@@ -13,7 +13,7 @@ namespace UnitTester
     {
         static void Main(string[] args)
         {
-            NmeaDevice uut = new NmeaDevice(new SerialPort("COM7",115200), "uut");
+            NmeaDevice uut = new NmeaDevice(new SerialPort("COM7",115200), @"C:\Users\Adam\Downloads\trash\uut_DIRECT.raw", "uut");
             uut.MessageReceived += Uut_MessageReceived;
             uut.OpenPort();
             Console.ReadLine();
