@@ -38,7 +38,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.3";
+        private const string SoftwareVersion = "V5.4";
 
         static bool running = false;
         enum FixQuality
@@ -231,8 +231,6 @@ namespace L86_collector
                     refErrLog.Start();
                     refErrLog.LogLine("Capture Time (UTC)\ttype");
                 }
-
-                Paused = false;
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
@@ -561,7 +559,19 @@ namespace L86_collector
                 }
             }
 
-            public bool Paused { get; private set; }
+            public bool Paused
+            {
+                get
+                {
+                    bool paused = false;
+
+                    paused |= refTimeLog.Paused;
+                    paused |= checkLog.Paused;
+                    paused |= refErrLog.Paused;
+
+                    return paused;
+                }
+            }
             public void PauseLoggers(TimeSpan time)
             {
                 logger.Pause(time);
@@ -571,8 +581,6 @@ namespace L86_collector
                     checkLog.Pause(time);
                     refErrLog.Pause(time);
                 }
-
-                Paused = true;
             }
 
             public void ResumeLoggers()
@@ -584,7 +592,6 @@ namespace L86_collector
                     checkLog.ReStart();
                     refErrLog.ReStart();
                 }
-                Paused = false;
             }
 
             public void Close()
@@ -1310,7 +1317,7 @@ namespace L86_collector
                 {
                     unitsPaused |= unit.Paused;
                 }
-                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)) || unitsPaused)
+                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)) || unitsPaused || (ppsCardUsed && ppsCard.Paused))
                 {
                     TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
                     Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);

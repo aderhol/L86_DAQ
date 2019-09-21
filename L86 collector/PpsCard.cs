@@ -59,6 +59,14 @@ namespace PpsCardDelivery
             card.Close();
         }
 
+        public bool Paused
+        {
+            get
+            {
+                return logger.Paused;
+            }
+        }
+
         public void Pause(TimeSpan time)
         {
             logger.Pause(time);
