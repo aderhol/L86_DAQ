@@ -38,7 +38,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.4";
+        private const string SoftwareVersion = "V5.5";
 
         static bool running = false;
         enum FixQuality
@@ -565,9 +565,12 @@ namespace L86_collector
                 {
                     bool paused = false;
 
-                    paused |= refTimeLog.Paused;
-                    paused |= checkLog.Paused;
-                    paused |= refErrLog.Paused;
+                    if (collectSkew)
+                    {
+                        paused |= refTimeLog.Paused;
+                        paused |= checkLog.Paused;
+                        paused |= refErrLog.Paused;
+                    }
 
                     return paused;
                 }
@@ -687,7 +690,7 @@ namespace L86_collector
                 Console.Write("Path of setup file: ");
 #if DEBUG
 #if ACER_1
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\skewMeas_I.xml";
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\invTest_Setup.xml";
 #elif MIT_PC_1
                 string setUpFilePath = @"C:\Users\hollos\Desktop\Skew Measurement\Setup.xml";
 #else
