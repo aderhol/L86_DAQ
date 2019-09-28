@@ -196,7 +196,7 @@ namespace L86_collector
             private bool skewReceived;
             private bool sensorDataReceived;
 
-            private readonly ThreadedLogger refTimeLog, checkLog, refErrLog;
+            private readonly ThreadedLogger refTimeLog, checkLog, refErrLog, nmeaDelayLog;
 
             public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
             {
@@ -230,6 +230,10 @@ namespace L86_collector
                     refErrLog = new ThreadedLogger(refErrorFile, "refErrorLogger: " + designation);
                     refErrLog.Start();
                     refErrLog.LogLine("Capture Time (UTC)\ttype");
+
+                    nmeaDelayLog = new ThreadedLogger(refErrorFile+".nmdly", "nmeDelayLogger: " + designation);
+                    nmeaDelayLog.Start();
+                    nmeaDelayLog.LogLine("Capture Time (UTC)\tdelay");
                 }
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
@@ -327,6 +331,8 @@ namespace L86_collector
                             nmeaBlock.skewData.absTime_ticks = message.absTime_ticks;
                             nmeaBlock.skewData.status = message.status;
                             skewReceived = true;
+
+                            nmeaDelayLog.LogLine("{0}\t{1}", DateTime.UtcNow.ToString("yyyy/MM/dd HH:mm:ss"), message.packetDelay);
                         }
                         break;
                     case "SENDAT":
@@ -570,6 +576,7 @@ namespace L86_collector
                         paused |= refTimeLog.Paused;
                         paused |= checkLog.Paused;
                         paused |= refErrLog.Paused;
+                        paused |= nmeaDelayLog.Paused;
                     }
 
                     return paused;
@@ -583,6 +590,8 @@ namespace L86_collector
                     refTimeLog.Pause(time);
                     checkLog.Pause(time);
                     refErrLog.Pause(time);
+
+                    nmeaDelayLog.Pause(time);
                 }
             }
 
@@ -594,6 +603,8 @@ namespace L86_collector
                     refTimeLog.ReStart();
                     checkLog.ReStart();
                     refErrLog.ReStart();
+
+                    nmeaDelayLog.ReStart();
                 }
             }
 
@@ -604,6 +615,9 @@ namespace L86_collector
                 refTimeLog.Close();
                 checkLog.Close();
                 refErrLog.Close();
+
+                nmeaDelayLog.Close();
+
                 port.Close();
             }
         }
