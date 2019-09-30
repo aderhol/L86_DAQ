@@ -20,6 +20,8 @@ namespace L86_collector
 {
     class Program
     {
+        const int BAUD_RATE = 10000000;
+
         private static void logTime(string folder)
         {
             while (!terminationEventSignal.IsCancellationRequested)
@@ -208,7 +210,7 @@ namespace L86_collector
                 this.boardWidth = boardWidth;
                 queue = new ConcurrentQueue<NmeaBlock>();
 #if ACER_1 && DEBUG
-                port = new NmeaDevice(new SerialPort("COM" + portNum, 115200, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                port = new NmeaDevice(new SerialPort("COM" + portNum, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #else
                 port = new NmeaDevice(new SerialPort("COM" + portNum, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #endif
@@ -231,7 +233,7 @@ namespace L86_collector
                     refErrLog.Start();
                     refErrLog.LogLine("Capture Time (UTC)\ttype");
 
-                    nmeaDelayLog = new ThreadedLogger(refErrorFile+".nmdly", "nmeDelayLogger: " + designation);
+                    nmeaDelayLog = new ThreadedLogger(refErrorFile + ".nmdly", "nmeDelayLogger: " + designation);
                     nmeaDelayLog.Start();
                     nmeaDelayLog.LogLine("Capture Time (UTC)\tdelay");
                 }

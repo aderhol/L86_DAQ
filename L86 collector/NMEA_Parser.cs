@@ -505,12 +505,15 @@ namespace NMEA_Parser
         }
 
         private int Gpgsv_count = 0;
+        private int Gpgsv_errCount = 0;
         private List<SatelliteVehicle> Gpgsv_sat = new List<SatelliteVehicle>();
         private string GpgsvRaw = "";
         private int Glgsv_count = 0;
+        private int Glgsv_errCount = 0;
         private List<SatelliteVehicle> Glgsv_sat = new List<SatelliteVehicle>();
         private string GlgsvRaw = "";
         private int Gagsv_count = 0;
+        private int Gagsv_errCount = 0;
         private List<SatelliteVehicle> Gagsv_sat = new List<SatelliteVehicle>();
         private string GagsvRaw = "";
         private void Process()
@@ -578,6 +581,7 @@ namespace NMEA_Parser
                     else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Gpgsv_count = 0;
+                        Gpgsv_errCount = 0;
                         Gpgsv_sat = new List<SatelliteVehicle>();
                         GpgsvRaw = "";
                     }
@@ -590,6 +594,7 @@ namespace NMEA_Parser
                     else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Glgsv_count = 0;
+                        Glgsv_errCount = 0;
                         Glgsv_sat = new List<SatelliteVehicle>();
                         GlgsvRaw = "";
                     }
@@ -602,6 +607,7 @@ namespace NMEA_Parser
                     else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
                     {
                         Gagsv_count = 0;
+                        Gagsv_errCount = 0;
                         Gagsv_sat = new List<SatelliteVehicle>();
                         GagsvRaw = "";
                     }
@@ -979,7 +985,13 @@ namespace NMEA_Parser
                                     try
                                     {
                                         if (tokens[i] == "")
+                                        {
+                                            if (tokens[i + 3] != "")
+                                            {
+                                                Gpgsv_errCount++;
+                                            }
                                             continue;
+                                        }
 
                                         Gpgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
                                     }
@@ -994,7 +1006,7 @@ namespace NMEA_Parser
                                     int sVsInView;
                                     try
                                     {
-                                        sVsInView = Convert.ToInt32(tokens[3]);
+                                        sVsInView = Convert.ToInt32(tokens[3]) - Gpgsv_errCount;
                                     }
                                     catch
                                     {
@@ -1044,7 +1056,13 @@ namespace NMEA_Parser
                                     try
                                     {
                                         if (tokens[i] == "")
+                                        {
+                                            if (tokens[i + 3] != "")
+                                            {
+                                                Glgsv_errCount++;
+                                            }
                                             continue;
+                                        }
 
                                         Glgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
                                     }
@@ -1059,7 +1077,7 @@ namespace NMEA_Parser
                                     int sVsInView;
                                     try
                                     {
-                                        sVsInView = Convert.ToInt32(tokens[3]);
+                                        sVsInView = Convert.ToInt32(tokens[3]) - Glgsv_errCount;
                                     }
                                     catch
                                     {
@@ -1108,7 +1126,13 @@ namespace NMEA_Parser
                                     try
                                     {
                                         if (tokens[i] == "")
+                                        {
+                                            if (tokens[i + 3] != "")
+                                            {
+                                                Gagsv_errCount++;
+                                            }
                                             continue;
+                                        }
 
                                         Gagsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
                                     }
@@ -1123,7 +1147,7 @@ namespace NMEA_Parser
                                     int sVsInView;
                                     try
                                     {
-                                        sVsInView = Convert.ToInt32(tokens[3]);
+                                        sVsInView = Convert.ToInt32(tokens[3]) - Gagsv_errCount;
                                     }
                                     catch
                                     {
