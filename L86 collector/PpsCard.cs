@@ -14,21 +14,31 @@ namespace PpsCardDelivery
         private readonly NmeaDevice card;
         private readonly ThreadedLogger logger;
 
-        public string portNum { get; }
+        public string InputResourceLocator { get; }
 
-        public PpsCard(string port, string logFilePath, string rawFilePath)
+        public PpsCard(string inputResourceLocator, string logFilePath, string rawFilePath)
         {
-            portNum = port;
+            InputResourceLocator = inputResourceLocator;
 
             logger = new ThreadedLogger(logFilePath, "PpsCardLogger");
             logger.Start();
 
             logger.LogLine("time(UTC)\tdelay\taverage (N=90)\taverage (N=500)\taverage (N=1000)\ttemperature");
 
-            card = new NmeaDevice(new SerialPort("COM" + port, 115200, Parity.None, 8, StopBits.One), rawFilePath, "PpsCard");
+
+            if (int.TryParse(inputResourceLocator, out int comPortNumber))
+            {
+                card = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, 115200, Parity.None, 8, StopBits.One), rawFilePath, "PpsCard");
+            }
+            else
+            {
+                card = new NmeaDevice(inputResourceLocator, rawFilePath, "PpsCard");
+            }
+
             card.MessageReceived += NmeaMessageReceived;
             card.OpenPort();
             card.startLogging();
+            card.ResetInputStream();
         }
 
         private void NmeaMessageReceived(object sender_, EventArgs args_)

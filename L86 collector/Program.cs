@@ -20,7 +20,7 @@ namespace L86_collector
 {
     class Program
     {
-        const int BAUD_RATE = 10000000;
+        const int BAUD_RATE = 115200;
 
         private static void logTime(string folder)
         {
@@ -181,7 +181,7 @@ namespace L86_collector
             private readonly ThreadedLogger logger;
             public readonly string designation;
             public ConcurrentQueue<NmeaBlock> queue;
-            public readonly string portNum;
+            public readonly string inputResourceLocator;
             public readonly string boardID;
             public readonly double boardHeight;
             public readonly double boardWidth;
@@ -200,20 +200,29 @@ namespace L86_collector
 
             private readonly ThreadedLogger refTimeLog, checkLog, refErrLog, nmeaDelayLog;
 
-            public NmeaTestUnit(string portNum, string rawFile, string rawFile_direct, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
+            public NmeaTestUnit(string inputResourceLocator, string rawFile, string rawFile_direct, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
             {
                 this.collectSkew = collectSkew;
 
-                this.portNum = portNum;
+                this.inputResourceLocator = inputResourceLocator;
                 this.boardID = boardID;
                 this.boardHeight = boardHeight;
                 this.boardWidth = boardWidth;
                 queue = new ConcurrentQueue<NmeaBlock>();
+                if (int.TryParse(inputResourceLocator, out int comPortNumber))
+                {
 #if ACER_1 && DEBUG
-                port = new NmeaDevice(new SerialPort("COM" + portNum, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #else
-                port = new NmeaDevice(new SerialPort("COM" + portNum, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #endif
+                }
+                else
+                {
+                    port = new NmeaDevice(inputResourceLocator, rawFile_direct, designation);
+                    port.FileProcessed += FileProcessed;
+                }
+
                 port.MessageReceived += NmeaMessageReceived;
                 port.OpenPort();
                 logger = new ThreadedLogger(rawFile, "RawLogger: " + designation);
@@ -237,6 +246,8 @@ namespace L86_collector
                     nmeaDelayLog.Start();
                     nmeaDelayLog.LogLine("Capture Time (UTC)\tdelay");
                 }
+
+                InputStreamClosed = false;
             }
             private void NmeaMessageReceived(object sender_, EventArgs args_)
             {
@@ -567,6 +578,11 @@ namespace L86_collector
                 }
             }
 
+            private void FileProcessed(object sender, EventArgs args)
+            {
+                InputStreamClosed = true;
+            }
+
             public bool Paused
             {
                 get
@@ -610,6 +626,7 @@ namespace L86_collector
                 }
             }
 
+            public bool InputStreamClosed { private set; get; }
             public void Close()
             {
                 port.MessageReceived -= NmeaMessageReceived;
@@ -621,6 +638,16 @@ namespace L86_collector
                 nmeaDelayLog.Close();
 
                 port.Close();
+            }
+
+            public void ResetInputStream()
+            {
+                NmeaBlock trash;
+                while (!queue.IsEmpty)
+                    while (!queue.TryDequeue(out trash))
+                        Thread.Yield();
+
+                port.ResetInputStream();
             }
         }
 
@@ -706,7 +733,7 @@ namespace L86_collector
                 Console.Write("Path of setup file: ");
 #if DEBUG
 #if ACER_1
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\invTest_Setup.xml";
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\fileTest_Setup.xml";
 #elif MIT_PC_1
                 string setUpFilePath = @"C:\Users\hollos\Desktop\Skew Measurement\Setup.xml";
 #else
@@ -1034,7 +1061,7 @@ namespace L86_collector
 
                                     writer.WriteStartElement("COM_portNumber");
                                     {
-                                        writer.WriteString(ppsCard.portNum);
+                                        writer.WriteString(ppsCard.InputResourceLocator);
                                     }
                                     writer.WriteEndElement();
                                 }
@@ -1059,7 +1086,7 @@ namespace L86_collector
 
                                 writer.WriteStartElement("COM_portNumber");
                                 {
-                                    writer.WriteString(nmeaTestUnits[0].portNum);
+                                    writer.WriteString(nmeaTestUnits[0].inputResourceLocator);
                                 }
                                 writer.WriteEndElement();
 
@@ -1109,7 +1136,7 @@ namespace L86_collector
 
                                     writer.WriteStartElement("COM_portNumber");
                                     {
-                                        writer.WriteString(nmeaTestUnits[i].portNum);
+                                        writer.WriteString(nmeaTestUnits[i].inputResourceLocator);
                                     }
                                     writer.WriteEndElement();
 
@@ -1308,13 +1335,10 @@ namespace L86_collector
                 }
             }
 
-            //empty queues
+            //empty queues or start reading input files
             foreach (NmeaTestUnit unit in nmeaTestUnits)
             {
-                NmeaBlock trash;
-                while (!unit.queue.IsEmpty)
-                    while (!unit.queue.TryDequeue(out trash))
-                        Thread.Yield();
+                unit.ResetInputStream();
             }
             running = true;
             DateTime startTime = DateTime.UtcNow;
@@ -1322,32 +1346,43 @@ namespace L86_collector
 
             #region new
             DateTime resumeTime = DateTime.UtcNow;
+            DateTime lastScreenUpdateTime = DateTime.UtcNow.Subtract(new TimeSpan(1, 0, 0));
 
             ThreadedLogger logLog;
             logLog = new ThreadedLogger(workFolder + lable + ".log", "logLog", 1024 * 1024 * 100);
             logLog.Start();
             for (UInt64 i = 0; !terminationEventSignal.IsCancellationRequested; i++)
             {
-                //if (i % 10 == 0)
-                //{
-                Console.Clear();
-                bool unitsPaused = false;
+                bool unitsClosed = true, anyQueueEmpty = false;
                 foreach (NmeaTestUnit unit in nmeaTestUnits)
                 {
-                    unitsPaused |= unit.Paused;
+                    unitsClosed &= unit.InputStreamClosed;
+                    anyQueueEmpty |= unit.queue.IsEmpty;
                 }
-                if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)) || unitsPaused || (ppsCardUsed && ppsCard.Paused))
+                if (unitsClosed && anyQueueEmpty)
+                    break;
+
+                if (DateTime.UtcNow.Subtract(lastScreenUpdateTime).TotalSeconds > 0.8)
                 {
-                    TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
-                    Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
+                    lastScreenUpdateTime = DateTime.UtcNow;
+                    Console.Clear();
+                    bool unitsPaused = false;
+                    foreach (NmeaTestUnit unit in nmeaTestUnits)
+                    {
+                        unitsPaused |= unit.Paused;
+                    }
+                    if (devLog.Paused || datLog.Paused || errLog.Paused || locLog.Paused || logLog.Paused || (collectSkew && (skewLog.Paused || skewErrLog.Paused || senLog.Paused || senErrLog.Paused)) || unitsPaused || (ppsCardUsed && ppsCard.Paused))
+                    {
+                        TimeSpan rem = resumeTime.Subtract(DateTime.UtcNow);
+                        Console.WriteLine("Logging is stopped, {0} minutes and {1} seconds remaining. Resume by pressing F10.\n", rem.Minutes, rem.Seconds);
+                    }
+                    else
+                    {
+                        Console.WriteLine("You can pause the logging by pressing F2.\n");
+                    }
+                    Console.WriteLine("Measurement in progres: {0}", lable);
+                    Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
                 }
-                else
-                {
-                    Console.WriteLine("You can pause the logging by pressing F2.\n");
-                }
-                Console.WriteLine("Measurement in progres: {0}", lable);
-                Console.WriteLine("Number of datapoints: {0}\r\nElapsed time: {1:c}", i, DateTime.UtcNow.Subtract(startTime));
-                //}
 
                 while (Console.KeyAvailable)
                 {
@@ -1423,12 +1458,16 @@ namespace L86_collector
                 DateTime currentTime = DateTime.UtcNow.AddYears(50);
                 for (int j = 0; j < nmeaTestUnits.Length; j++)
                 {
+                    int delayCount = 0;
                     while (nmeaTestUnits[j].queue.Count == 0)
                     {
                         if (terminationEventSignal.IsCancellationRequested)
                             goto TerminationSequence;
 
-                        Thread.Sleep(100);
+                        Thread.Sleep(delayCount);
+
+                        if (delayCount < 100)
+                            delayCount += 10;
                     }
                     while (!nmeaTestUnits[j].queue.TryPeek(out currentNmeaBlocks[j]))
                         Thread.Yield();

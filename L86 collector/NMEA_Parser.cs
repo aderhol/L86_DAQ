@@ -424,10 +424,16 @@ namespace NMEA_Parser
         public event EventHandler MessageReceived;
         private volatile string Incoming;
         private volatile ConcurrentQueue<string> IncomingQueue;
-        private Thread SerialCollector;
+        private Thread Collector;
         private Thread SerialProcessor;
 
         private ThreadedLogger logger;
+
+        private StreamReader inputFile;
+        private AutoResetEvent ResetRequested = new AutoResetEvent(false);
+        public event EventHandler FileProcessed;
+
+
 
         public NmeaDevice(SerialPort serialPort, string rawFilePath, string name)
         {
@@ -443,13 +449,39 @@ namespace NMEA_Parser
             Incoming = "";
             IncomingQueue = new ConcurrentQueue<string>();
 
-            SerialCollector = new Thread(new ThreadStart(SerialCollectorWorker));
-            SerialCollector.Name = "SerialCollector: " + name;
-            SerialCollector.IsBackground = true;
+            Collector = new Thread(new ThreadStart(SerialCollectorWorker));
+            Collector.Name = "SerialCollector: " + name;
+            Collector.IsBackground = true;
 
             SerialProcessor = new Thread(new ThreadStart(Process));
             SerialProcessor.Name = "SerialProcessor: " + name;
             SerialProcessor.IsBackground = true;
+        }
+
+        public NmeaDevice(string inputFilePath, string rawFilePath, string name)
+        {
+            if (File.Exists(rawFilePath))
+                throw new Exception("NmeaDevice: rawFile exists");
+            if (!Directory.Exists(new FileInfo(rawFilePath).Directory.FullName))
+                throw new Exception("NmeaDevice: rawFile directory does not exists");
+            if (!File.Exists(inputFilePath))
+                throw new Exception("NmeaDevice: inputFile does not exists");
+
+
+            logger = new ThreadedLogger(rawFilePath, "Logger: " + name);
+
+            inputFile = new StreamReader(inputFilePath);
+            IncomingQueue = new ConcurrentQueue<string>();
+
+            Collector = new Thread(new ThreadStart(FileCollectorWorker));
+            Collector.Name = "FileCollector: " + name;
+            Collector.IsBackground = true;
+
+            SerialProcessor = new Thread(new ThreadStart(Process));
+            SerialProcessor.Name = "FileProcessor: " + name;
+            SerialProcessor.IsBackground = true;
+
+            Port = null;
         }
 
 #if NMEADevice_UnitTest
@@ -471,10 +503,10 @@ namespace NMEA_Parser
 
         public void OpenPort()
         {
-            if (Port.IsOpen)
+            if (Port != null && Port.IsOpen)
                 throw new Exception("NMEA_Parser: double port open");
 
-            SerialCollector.Start();
+            Collector.Start();
             SerialProcessor.Start();
         }
 
@@ -502,6 +534,55 @@ namespace NMEA_Parser
                 IncomingQueue.Enqueue(snippet);
             }
             collectorStopped.Set();
+        }
+
+        private void FileCollectorWorker()
+        {
+            ResetRequested.WaitOne();
+
+            bool endOfFile = false;
+
+            int delayCnt = 0;
+
+            while (!isCloseRequested.IsCancellationRequested)
+            {
+                if (IncomingQueue.Count > 10)
+                {
+                    Thread.Sleep(delayCnt);
+
+                    if (delayCnt < 100)
+                        delayCnt++;
+
+                    continue;
+                }
+                else
+                {
+                    delayCnt = 0;
+                }
+
+                char[] snippetBuff = new char[1000];
+                int cnt = inputFile.ReadBlock(snippetBuff, 0, snippetBuff.Length);
+                string snippet = new string(snippetBuff, 0, cnt);
+
+#if !NMEADevice_UnitTest
+                logger.Log(snippet);
+#endif
+                IncomingQueue.Enqueue(snippet);
+
+                if (cnt < snippetBuff.Length || inputFile.EndOfStream)
+                {
+                    endOfFile = true;
+                    break;
+                }
+            }
+
+
+            inputFile.Close();
+
+            collectorStopped.Set();
+
+            if (endOfFile)
+                FileProcessed?.Invoke(this, new EventArgs());
         }
 
         private int Gpgsv_count = 0;
@@ -1545,6 +1626,11 @@ namespace NMEA_Parser
 #if !NMEADevice_UnitTest
             logger.Close();
 #endif
+        }
+
+        public void ResetInputStream()
+        {
+            ResetRequested.Set();
         }
     }
 }
