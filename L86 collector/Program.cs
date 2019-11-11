@@ -681,8 +681,10 @@ namespace L86_collector
             string folder = @"C:\Users\Adam\Desktop\GND Size Study\";
 #elif DELL_2
             string folder = @"C:\Users\Adam-MIT\Desktop\Measurements\";
-#elif MIT_PC_1 
+#elif MIT_PC_1
             string folder = @"C:\Users\hollos\Desktop\Skew Measurement\";
+#elif DELL_SERVER
+            string folder = @"C:\Users\Administrator\Desktop\Measurements";
 #else
             string folder = Console.ReadLine();
 #endif
