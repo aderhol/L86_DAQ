@@ -40,7 +40,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.5";
+        private const string SoftwareVersion = "V5.6";
 
         static bool running = false;
         enum FixQuality
@@ -141,7 +141,7 @@ namespace L86_collector
             {
                 get
                 {
-                    int[] all = new int[numberOfTrackedSatellites];
+                    int[] all = new int[usedSatellitesGPS.Length + usedSatellitesGLONASS.Length + usedSatellitesGalileo.Length];
                     usedSatellitesGPS.CopyTo(all, 0);
                     usedSatellitesGLONASS.CopyTo(all, usedSatellitesGPS.Length);
                     usedSatellitesGalileo.CopyTo(all, usedSatellitesGPS.Length + usedSatellitesGLONASS.Length);
@@ -197,6 +197,7 @@ namespace L86_collector
             private bool[] messageChecklist = new bool[6];
             private bool skewReceived;
             private bool sensorDataReceived;
+            private bool gnsReceived;
 
             private readonly ThreadedLogger refTimeLog, checkLog, refErrLog, nmeaDelayLog;
 
@@ -270,6 +271,7 @@ namespace L86_collector
                         }
                         skewReceived = false;
                         sensorDataReceived = false;
+                        gnsReceived = false;
                     }
                     return;
                 }
@@ -392,7 +394,8 @@ namespace L86_collector
                         {
                             Gpgga message = (Gpgga)message_;
                             nmeaBlock.fixQuality = (FixQuality)message.Quality;
-                            nmeaBlock.numberOfTrackedSatellites = message.NumberOfSatellites;
+                            if (!gnsReceived)
+                                nmeaBlock.numberOfTrackedSatellites = message.NumberOfSatellites;
                             nmeaBlock.coordinates.Altitude = message.Altitude;
                             nmeaBlock.DGPS_age = message.TimeSinceLastDgpsUpdate;
                             nmeaBlock.DGPS_ID = message.DgpsStationId;
@@ -403,7 +406,8 @@ namespace L86_collector
                         {
                             Gngga message = (Gngga)message_;
                             nmeaBlock.fixQuality = (FixQuality)message.Quality;
-                            nmeaBlock.numberOfTrackedSatellites = message.NumberOfSatellites;
+                            if (!gnsReceived)
+                                nmeaBlock.numberOfTrackedSatellites = message.NumberOfSatellites;
                             nmeaBlock.coordinates.Altitude = message.Altitude;
                             nmeaBlock.DGPS_age = message.TimeSinceLastDgpsUpdate;
                             nmeaBlock.DGPS_ID = message.DgpsStationId;
@@ -494,8 +498,16 @@ namespace L86_collector
                             messageChecklist[(int)MessageIndex.AGSV] = true;
                         }
                         break;
+                    case "GNGNS":
+                        {
+                            //Gngns message = (Gagns)message_;
+
+                            gnsReceived = true;
+                            //nmeaBlock.numberOfTrackedSatellites = message.xx;
+                        }
+                        break;
                     case "GNZDA":
-                        if (nmeaBlock.numberOfTrackedSatellites == 12)
+                        if (!gnsReceived && nmeaBlock.numberOfTrackedSatellites == 12)
                             nmeaBlock.numberOfTrackedSatellites = nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo;
                         goto case "GPTXT";
                     case "GPTXT":
@@ -505,8 +517,7 @@ namespace L86_collector
 
                         if (((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3)) && (!collectSkew || (skewReceived && sensorDataReceived)))
                         {
-                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
-                                && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo)
                                 queue.Enqueue(nmeaBlock);
                             else
                             {
@@ -536,14 +547,14 @@ namespace L86_collector
                         }
                         skewReceived = false;
                         sensorDataReceived = false;
+                        gnsReceived = false;
                         break;
                     case "GNTXT":
                         nmeaBlock.satellitesGPS = satellitesGPS.ToArray();
                         nmeaBlock.satellitesGLONASS = satellitesGLONASS.ToArray();
 
                         if (((!messageChecklist.Take(5).Contains(false) && GSAindex == 2) || (!messageChecklist.Contains(false) && GSAindex == 3)) && (!collectSkew || (skewReceived && sensorDataReceived)))
-                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo
-                            && (nmeaBlock.numberOfTrackedSatellites == nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo))
+                            if (nmeaBlock.satellitesGPS.Length == nmeaBlock.numberOfSatellitesInViewGPS && nmeaBlock.satellitesGLONASS.Length == nmeaBlock.numberOfSatellitesInViewGLONASS && nmeaBlock.satellitesGalileo.Length == nmeaBlock.numberOfSatellitesInViewGalileo)
                                 queue.Enqueue(nmeaBlock);
                             else
                             {
@@ -572,6 +583,7 @@ namespace L86_collector
                         }
                         skewReceived = false;
                         sensorDataReceived = false;
+                        gnsReceived = false;
                         break;
                     default:
                         break;
@@ -1475,6 +1487,42 @@ namespace L86_collector
                         Thread.Yield();
                     currentTime = (currentTime > currentNmeaBlocks[j].time) ? currentNmeaBlocks[j].time : currentTime;
                 }
+
+                if (0 != currentTime.Millisecond)
+                {
+                    string time = currentTime.AddMilliseconds(500).ToString("yyyy/MM/dd HH:mm:ss");
+                    List<string> errors = new List<string>();
+
+                    for (int j = 0; j < nmeaTestUnits.Length; j++)
+                    {
+                        if (currentTime == currentNmeaBlocks[j].time)
+                        {
+                            while (!nmeaTestUnits[j].queue.TryDequeue(out currentNmeaBlocks[j]))
+                                Thread.Yield();
+
+                            errors.Add(stringMaker("\t", time, nmeaTestUnits[j].designation, (0 == j ? "REF," : "") + "imprecise", Convert.ToString(1 << 5 | ((j == 0) ? 1 << 4 : 0), 2).PadLeft(6, '0')));
+                        }
+                    }
+
+                    try
+                    {
+                        errLog.LogLine(String.Join("\r\n", errors));
+                    }
+                    catch (Exception e)
+                    {
+                        if (e.Message == "writeToLogFile failed")
+                        {
+                            Console.WriteLine("The log files cannot be accessed.");
+                            Console.ReadLine();
+                        }
+                        else
+                            throw e;
+                    }
+
+                    i--; //no new data point got captured
+                    continue;
+                }
+
                 NmeaBlock refBlock = currentNmeaBlocks[0];
 
                 string datF, devF, locF, skewF, senF;
@@ -1527,7 +1575,7 @@ namespace L86_collector
                                 Thread.Yield();
                             blockXmler(refBlock, collectSkew, logFXmlWriter, nmeaTestUnits[0].designation, "reference", 0, nmeaTestUnits[0].boardID, nmeaTestUnits[0].boardHeight, nmeaTestUnits[0].boardWidth);
                         }
-                        errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(5, '0')));
+                        errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[0].designation, errors, Convert.ToString(code, 2).PadLeft(6, '0')));
                         datF = stringMaker("\t", datF, datFileString());
                     }
                     else
@@ -1651,7 +1699,7 @@ namespace L86_collector
 
                                 blockXmler(block, collectSkew, logFXmlWriter, nmeaTestUnits[j].designation, "DUT", j, nmeaTestUnits[j].boardID, nmeaTestUnits[j].boardHeight, nmeaTestUnits[j].boardWidth);
                             }
-                            errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(5, '0')));
+                            errF.Add(stringMaker("\t", currentTime.ToString("yyyy/MM/dd HH:mm:ss"), nmeaTestUnits[j].designation, errorStr, Convert.ToString(code, 2).PadLeft(6, '0')));
                             datF = stringMaker("\t", datF, datFileString());
                             devF = stringMaker("\t", devF, devFileString());
                         }
