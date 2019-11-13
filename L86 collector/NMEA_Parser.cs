@@ -406,6 +406,90 @@ namespace NMEA_Parser
         }
     }
 
+    public enum PosMode
+    {
+        no_fix,
+        estimated,
+        autonomous,
+        differential,
+        RTK_float,
+        RTK_fixed,
+        notApplicable
+    }
+
+    public class Gns : NmeaMessage
+    {
+        public DateTime utcTime { get; }
+        public double latitude { get; }
+        public double longitude { get; }
+        public PosMode posMode_GPS { get; }
+        public PosMode posMode_GLONASS { get; }
+        public PosMode posMode_Galileo { get; }
+        public int numberOfUsedSatellites { get; }
+        public double horizontalDilutionOfPrecision { get; }
+        public double altitude_m { get; }
+        public double geoidSeparation_m { get; }
+        public double dgpsAge_s { get; }
+        public int dgpsId { get; }
+
+
+        protected Gns(string rawMessage, string messageType, DateTime utcTime, double latitude, double longitude, PosMode posMode_GPS, PosMode posMode_GLONASS, PosMode posMode_Galileo, int numberOfUsedSatellites, double HDOP, double altitude, double geoidSep, double dgpsAge, int dgpsId) : base(rawMessage, messageType)
+        {
+            this.utcTime = utcTime;
+            this.latitude = latitude;
+            this.longitude = longitude;
+            this.posMode_GPS = posMode_GPS;
+            this.posMode_GLONASS = posMode_GLONASS;
+            this.posMode_Galileo = posMode_Galileo;
+            this.numberOfUsedSatellites = numberOfUsedSatellites;
+            this.horizontalDilutionOfPrecision = HDOP;
+            this.altitude_m = altitude;
+            this.geoidSeparation_m = geoidSep;
+            this.dgpsAge_s = dgpsAge;
+            this.dgpsId = dgpsId;
+        }
+
+        protected Gns(Gns x) : base(x)
+        {
+            this.utcTime = x.utcTime;
+            this.latitude = x.latitude;
+            this.longitude = x.longitude;
+            this.posMode_GPS = x.posMode_GPS;
+            this.posMode_GLONASS = x.posMode_GLONASS;
+            this.posMode_Galileo = x.posMode_Galileo;
+            this.numberOfUsedSatellites = x.numberOfUsedSatellites;
+            this.horizontalDilutionOfPrecision = x.horizontalDilutionOfPrecision;
+            this.altitude_m = x.altitude_m;
+            this.geoidSeparation_m = x.geoidSeparation_m;
+            this.dgpsAge_s = x.dgpsAge_s;
+            this.dgpsId = x.dgpsId;
+        }
+    }
+
+    public class Gpgns : Gns
+    {
+        public Gpgns(string rawMessage, DateTime utcTime, double latitude, double longitude, PosMode posMode_GPS, PosMode posMode_GLONASS, PosMode posMode_Galileo, int numberOfUsedSatellites, double HDOP, double altitude, double geoidSep, double dgpsAge, int dgpsId) : base(rawMessage, "GPGNS", utcTime, latitude, longitude, posMode_GPS, posMode_GLONASS, posMode_Galileo, numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)
+        {
+
+        }
+
+        public Gpgns(Gpgns x) : base(x)
+        {
+
+        }
+    }
+    public class Gngns : Gns
+    {
+        public Gngns(string rawMessage, DateTime utcTime, double latitude, double longitude, PosMode posMode_GPS, PosMode posMode_GLONASS, PosMode posMode_Galileo, int numberOfUsedSatellites, double HDOP, double altitude, double geoidSep, double dgpsAge, int dgpsId) : base(rawMessage, "GNGNS", utcTime, latitude, longitude, posMode_GPS, posMode_GLONASS, posMode_Galileo, numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)
+        {
+
+        }
+
+        public Gngns(Gngns x) : base(x)
+        {
+
+        }
+    }
 
     public class NmeaMessageReceivedEventArgs : EventArgs
     {
@@ -1600,6 +1684,314 @@ namespace NMEA_Parser
                                 if (OK)
                                     MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new PpsInfo(raw, delay, delay_A90, delay_A500, delay_A1000, temperature)));
 
+                            }
+                            break;
+
+                        case "GPGNS":
+                            {
+                                if (tokens.Length != 13 && tokens.Length != 14)
+                                    break;
+
+                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+                                DateTime time;
+                                try
+                                {
+                                    if (tokens[1] != "")
+                                    {
+                                        if (tokens[1].Length == 10)
+                                            time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
+                                        else
+                                            time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
+                                    }
+                                    else
+                                    {
+                                        time = DateTime.MinValue;
+                                    }
+                                }
+                                catch (Exception el)
+                                {
+                                    throw el;
+                                }
+
+                                double latitude, lat_min, lat_sec;
+                                if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
+                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
+                                else
+                                    latitude = double.NaN;
+
+                                double longitude, lon_min, lon_sec;
+                                if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
+                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
+                                else
+                                    longitude = double.NaN;
+
+                                PosMode[] posMode = new PosMode[3];
+
+                                for (int i = 0; i < 3; i++)
+                                {
+                                    if (i < tokens[6].Length)
+                                    {
+                                        switch (tokens[6][i])
+                                        {
+                                            case 'N':
+                                                posMode[i] = PosMode.no_fix;
+                                                break;
+                                            case 'E':
+                                                posMode[i] = PosMode.estimated;
+                                                break;
+                                            case 'A':
+                                                posMode[i] = PosMode.autonomous;
+                                                break;
+                                            case 'D':
+                                                posMode[i] = PosMode.differential;
+                                                break;
+                                            case 'F':
+                                                posMode[i] = PosMode.RTK_float;
+                                                break;
+                                            case 'R':
+                                                posMode[i] = PosMode.RTK_fixed;
+                                                break;
+                                            default:
+                                                posMode[i] = PosMode.notApplicable;
+                                                break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        posMode[i] = PosMode.notApplicable;
+                                    }
+                                }
+
+                                int numberOfUsedSatellites;
+                                try
+                                {
+                                    numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double HDOP;
+                                try
+                                {
+                                    HDOP = Convert.ToDouble(tokens[8]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double altitude;
+                                try
+                                {
+                                    altitude = Convert.ToDouble(tokens[9]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double geoidSep;
+                                try
+                                {
+                                    geoidSep = Convert.ToDouble(tokens[10]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double dgpsAge;
+                                if (tokens[11] != "")
+                                {
+                                    try
+                                    {
+                                        dgpsAge = Convert.ToDouble(tokens[11]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                }
+                                else
+                                {
+                                    dgpsAge = double.NaN;
+                                }
+
+                                int dgpsId;
+                                if (tokens[12] != "")
+                                {
+                                    try
+                                    {
+                                        dgpsId = Convert.ToInt32(tokens[12]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                }
+                                else
+                                {
+                                    dgpsId = -1;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
+                            }
+                            break;
+
+                        case "GNGNS":
+                            {
+                                if (tokens.Length != 13 && tokens.Length != 14)
+                                    break;
+
+                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+                                DateTime time;
+                                try
+                                {
+                                    if (tokens[1] != "")
+                                    {
+                                        if (tokens[1].Length == 10)
+                                            time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
+                                        else
+                                            time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
+                                    }
+                                    else
+                                    {
+                                        time = DateTime.MinValue;
+                                    }
+                                }
+                                catch (Exception el)
+                                {
+                                    throw el;
+                                }
+
+                                double latitude, lat_min, lat_sec;
+                                if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
+                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
+                                else
+                                    latitude = double.NaN;
+
+                                double longitude, lon_min, lon_sec;
+                                if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
+                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
+                                else
+                                    longitude = double.NaN;
+
+                                PosMode[] posMode = new PosMode[3];
+
+                                for (int i = 0; i < 3; i++)
+                                {
+                                    if (i < tokens[6].Length)
+                                    {
+                                        switch (tokens[6][i])
+                                        {
+                                            case 'N':
+                                                posMode[i] = PosMode.no_fix;
+                                                break;
+                                            case 'E':
+                                                posMode[i] = PosMode.estimated;
+                                                break;
+                                            case 'A':
+                                                posMode[i] = PosMode.autonomous;
+                                                break;
+                                            case 'D':
+                                                posMode[i] = PosMode.differential;
+                                                break;
+                                            case 'F':
+                                                posMode[i] = PosMode.RTK_float;
+                                                break;
+                                            case 'R':
+                                                posMode[i] = PosMode.RTK_fixed;
+                                                break;
+                                            default:
+                                                posMode[i] = PosMode.notApplicable;
+                                                break;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        posMode[i] = PosMode.notApplicable;
+                                    }
+                                }
+
+                                int numberOfUsedSatellites;
+                                try
+                                {
+                                    numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double HDOP;
+                                try
+                                {
+                                    HDOP = Convert.ToDouble(tokens[8]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double altitude;
+                                try
+                                {
+                                    altitude = Convert.ToDouble(tokens[9]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double geoidSep;
+                                try
+                                {
+                                    geoidSep = Convert.ToDouble(tokens[10]);
+                                }
+                                catch
+                                {
+                                    throw;
+                                }
+
+                                double dgpsAge;
+                                if (tokens[11] != "")
+                                {
+                                    try
+                                    {
+                                        dgpsAge = Convert.ToDouble(tokens[11]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                }
+                                else
+                                {
+                                    dgpsAge = double.NaN;
+                                }
+
+                                int dgpsId;
+                                if (tokens[12] != "")
+                                {
+                                    try
+                                    {
+                                        dgpsId = Convert.ToInt32(tokens[12]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                }
+                                else
+                                {
+                                    dgpsId = -1;
+                                }
+
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
                             }
                             break;
 

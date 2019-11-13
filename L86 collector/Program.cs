@@ -215,7 +215,7 @@ namespace L86_collector
 #if ACER_1 && DEBUG
                     port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #else
-                port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
 #endif
                 }
                 else
@@ -498,12 +498,20 @@ namespace L86_collector
                             messageChecklist[(int)MessageIndex.AGSV] = true;
                         }
                         break;
-                    case "GNGNS":
+                    case "GPGNS":
                         {
-                            //Gngns message = (Gagns)message_;
+                            Gpgns message = (Gpgns)message_;
 
                             gnsReceived = true;
-                            //nmeaBlock.numberOfTrackedSatellites = message.xx;
+                            nmeaBlock.numberOfTrackedSatellites = message.numberOfUsedSatellites;
+                        }
+                        break;
+                    case "GNGNS":
+                        {
+                            Gngns message = (Gngns)message_;
+
+                            gnsReceived = true;
+                            nmeaBlock.numberOfTrackedSatellites = message.numberOfUsedSatellites;
                         }
                         break;
                     case "GNZDA":
@@ -695,7 +703,7 @@ namespace L86_collector
             string folder = @"C:\Users\Adam-MIT\Desktop\Measurements\";
 #elif MIT_PC_1
             string folder = @"C:\Users\hollos\Desktop\Skew Measurement\";
-#elif DELL_SERVER
+#elif DELL_SERVER_1
             string folder = @"C:\Users\Administrator\Desktop\Measurements";
 #else
             string folder = Console.ReadLine();
@@ -750,6 +758,8 @@ namespace L86_collector
                 string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\fileTest_Setup.xml";
 #elif MIT_PC_1
                 string setUpFilePath = @"C:\Users\hollos\Desktop\Skew Measurement\Setup.xml";
+#elif DELL_SERVER_1
+                string setUpFilePath = @"C:\Users\Administrator\Desktop\Measurements\setup.xml";
 #else
                 string setUpFilePath = Console.ReadLine();
 #endif
@@ -1830,7 +1840,7 @@ namespace L86_collector
                         throw e;
                 }
             }
-            TerminationSequence:
+        TerminationSequence:
             foreach (var unit in nmeaTestUnits)
             {
                 unit.Close();
