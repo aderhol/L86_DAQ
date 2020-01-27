@@ -16,7 +16,7 @@ namespace PpsCardDelivery
 
         public string InputResourceLocator { get; }
 
-        public PpsCard(string inputResourceLocator, string logFilePath, string rawFilePath)
+        public PpsCard(string inputResourceLocator, string logFilePath, string rawFilePath, string errFilePath)
         {
             InputResourceLocator = inputResourceLocator;
 
@@ -28,11 +28,11 @@ namespace PpsCardDelivery
 
             if (int.TryParse(inputResourceLocator, out int comPortNumber))
             {
-                card = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, 115200, Parity.None, 8, StopBits.One), rawFilePath, "PpsCard");
+                card = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, 115200, Parity.None, 8, StopBits.One), rawFilePath, errFilePath, "PpsCard");
             }
             else
             {
-                card = new NmeaDevice(inputResourceLocator, rawFilePath, "PpsCard");
+                card = new NmeaDevice(inputResourceLocator, rawFilePath, errFilePath, "PpsCard");
             }
 
             card.MessageReceived += NmeaMessageReceived;

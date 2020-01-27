@@ -40,7 +40,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.6";
+        private const string SoftwareVersion = "V5.7";
 
         static bool running = false;
         enum FixQuality
@@ -201,7 +201,7 @@ namespace L86_collector
 
             private readonly ThreadedLogger refTimeLog, checkLog, refErrLog, nmeaDelayLog;
 
-            public NmeaTestUnit(string inputResourceLocator, string rawFile, string rawFile_direct, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
+            public NmeaTestUnit(string inputResourceLocator, string rawFile, string rawFile_direct, string errFilePath, string refTimeFile, string refCheckFile, string refErrorFile, string designation, string boardID, double boardHeight, double boardWidth, bool collectSkew)
             {
                 this.collectSkew = collectSkew;
 
@@ -213,14 +213,14 @@ namespace L86_collector
                 if (int.TryParse(inputResourceLocator, out int comPortNumber))
                 {
 #if ACER_1 && DEBUG
-                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, errFilePath, designation);
 #else
-                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, designation);
+                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, errFilePath, designation);
 #endif
                 }
                 else
                 {
-                    port = new NmeaDevice(inputResourceLocator, rawFile_direct, designation);
+                    port = new NmeaDevice(inputResourceLocator, rawFile_direct, errFilePath, designation);
                     port.FileProcessed += FileProcessed;
                 }
 
@@ -340,6 +340,9 @@ namespace L86_collector
                         break;
                     case "SKEW":
                         {
+                            if (!collectSkew)
+                                break;
+
                             Skew message = (Skew)message_;
                             nmeaBlock.skewData.packetDelay_ms = message.packetDelay;
                             nmeaBlock.skewData.skew_ns = message.skew_ns;
@@ -515,7 +518,7 @@ namespace L86_collector
                         }
                         break;
                     case "GNZDA":
-                        if (!gnsReceived && nmeaBlock.numberOfTrackedSatellites == 12)
+                        if (!gnsReceived && nmeaBlock.numberOfTrackedSatellites == 12 && GSAindex >= 2)
                             nmeaBlock.numberOfTrackedSatellites = nmeaBlock.numberOfUsedSatellitesGLONASS + nmeaBlock.numberOfUsedSatellitesGPS + nmeaBlock.numberOfUsedSatellitesGalileo;
                         goto case "GPTXT";
                     case "GPTXT":
@@ -651,11 +654,14 @@ namespace L86_collector
             {
                 port.MessageReceived -= NmeaMessageReceived;
                 logger.Close();
-                refTimeLog.Close();
-                checkLog.Close();
-                refErrLog.Close();
+                if (collectSkew)
+                {
+                    refTimeLog.Close();
+                    checkLog.Close();
+                    refErrLog.Close();
 
-                nmeaDelayLog.Close();
+                    nmeaDelayLog.Close();
+                }
 
                 port.Close();
             }
@@ -755,7 +761,7 @@ namespace L86_collector
                 Console.Write("Path of setup file: ");
 #if DEBUG
 #if ACER_1
-                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\fileTest_Setup.xml";
+                string setUpFilePath = @"C:\Users\Adam\Desktop\GND Size Study\i2mtc_I_mod\i2mtc_I_mod_rerun.xml";
 #elif MIT_PC_1
                 string setUpFilePath = @"C:\Users\hollos\Desktop\Skew Measurement\Setup.xml";
 #elif DELL_SERVER_1
@@ -794,7 +800,8 @@ namespace L86_collector
                         {
                             ppsCard = new PpsCard(ppsDev.First().Element("COM_portNumber").Value,
                                                   workFolder + lable + "_ref.dly",
-                                                  workFolder + lable + "_ref_delay_Direct.raw");
+                                                  workFolder + lable + "_ref_delay_Direct.raw",
+                                                  workFolder + lable + "_ref_delay.parerr");
                         }
                         catch
                         {
@@ -818,6 +825,7 @@ namespace L86_collector
                     nmeaTestUnitsList.Add(new NmeaTestUnit(refDev.Element("COM_portNumber").Value, //portNum
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.raw",
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF_Direct.raw",
+                                            workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.parerr",
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.ref",
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF.chk",
                                             workFolder + lable + "_" + refDev.Element("designation").Value + "_REF_CHECK.err",
@@ -835,6 +843,7 @@ namespace L86_collector
                         nmeaTestUnitsList.Add(new NmeaTestUnit(unit.Element("COM_portNumber").Value, //portNum
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.raw",
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT_Direct.raw",
+                                            workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.parerr",
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.ref",
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT.chk",
                                             workFolder + lable + "_" + unit.Element("designation").Value + "_DUT_CHECK.err",
@@ -868,7 +877,8 @@ namespace L86_collector
                     {
                         ppsCard = new PpsCard(ppsCard_com,
                                               workFolder + lable + "_ref.dly",
-                                              workFolder + lable + "_ref_delay_Direct.raw");
+                                              workFolder + lable + "_ref_delay_Direct.raw",
+                                              workFolder + lable + "_ref_delay.parerr");
                     }
                     catch
                     {
@@ -931,6 +941,7 @@ namespace L86_collector
                     nmeaTestUnitsList.Add(new NmeaTestUnit(ref_com,
                                                            workFolder + lable + "_" + ref_des + "_REF.raw",
                                                            workFolder + lable + "_" + ref_des + "_REF_Direct.raw",
+                                                           workFolder + lable + "_" + ref_des + "_REF.parerr",
                                                            workFolder + lable + "_" + ref_des + "_REF.ref",
                                                            workFolder + lable + "_" + ref_des + "_REF.chk",
                                                            workFolder + lable + "_" + ref_des + "_REF_CHECK.err",
@@ -992,6 +1003,7 @@ namespace L86_collector
                         nmeaTestUnitsList.Add(new NmeaTestUnit(comNum,
                                                                workFolder + lable + "_" + des + "_DUT.raw",
                                                                workFolder + lable + "_" + des + "_DUT_Direct.raw",
+                                                               workFolder + lable + "_" + des + "_DUT.parerr",
                                                                workFolder + lable + "_" + des + "_DUT.ref",
                                                                workFolder + lable + "_" + des + "_DUT.chk",
                                                                workFolder + lable + "_" + des + "_DUT_CHECK.err",
@@ -1840,7 +1852,7 @@ namespace L86_collector
                         throw e;
                 }
             }
-        TerminationSequence:
+            TerminationSequence:
             foreach (var unit in nmeaTestUnits)
             {
                 unit.Close();

@@ -235,7 +235,7 @@ namespace CustumLoggers
             if (consolidated)
                 return;
 
-            if (fs_.Position > 3)
+            if (fs_.Position >= 3)
                 fs_.Position -= 3;
             fs_.SetLength(fs_.Position);
             writer_.Flush();

@@ -512,6 +512,7 @@ namespace NMEA_Parser
         private Thread SerialProcessor;
 
         private ThreadedLogger logger;
+        private ThreadedLogger errorLogger;
 
         private StreamReader inputFile;
         private AutoResetEvent ResetRequested = new AutoResetEvent(false);
@@ -519,7 +520,7 @@ namespace NMEA_Parser
 
 
 
-        public NmeaDevice(SerialPort serialPort, string rawFilePath, string name)
+        public NmeaDevice(SerialPort serialPort, string rawFilePath, string errFilePath, string name)
         {
             if (File.Exists(rawFilePath))
                 throw new Exception("NmeaDevice: rawFile exists");
@@ -528,6 +529,8 @@ namespace NMEA_Parser
 
 
             logger = new ThreadedLogger(rawFilePath, "Logger: " + name);
+            errorLogger = new ThreadedLogger(errFilePath, "errorLogger: " + name);
+            errorLogger.Start();
 
             Port = serialPort;
             Incoming = "";
@@ -542,7 +545,7 @@ namespace NMEA_Parser
             SerialProcessor.IsBackground = true;
         }
 
-        public NmeaDevice(string inputFilePath, string rawFilePath, string name)
+        public NmeaDevice(string inputFilePath, string rawFilePath, string errFilePath, string name)
         {
             if (File.Exists(rawFilePath))
                 throw new Exception("NmeaDevice: rawFile exists");
@@ -553,8 +556,11 @@ namespace NMEA_Parser
 
 
             logger = new ThreadedLogger(rawFilePath, "Logger: " + name);
+            errorLogger = new ThreadedLogger(errFilePath, "errorLogger: " + name);
+            errorLogger.Start();
 
             inputFile = new StreamReader(inputFilePath);
+            Incoming = "";
             IncomingQueue = new ConcurrentQueue<string>();
 
             Collector = new Thread(new ThreadStart(FileCollectorWorker));
@@ -708,1298 +714,1306 @@ namespace NMEA_Parser
 
                 while (Incoming.Contains("\n"))
                 {
-                    raw = new string(Incoming.TakeWhile((x) => x != '\n').ToArray()) + "\n"; //fetch message
-                    Incoming = Incoming.Remove(0, raw.Length); //remove fetched message
-                    raw = raw.TrimEnd("\r\n".ToCharArray());
-
-                    if (raw.Length == 0 || raw[0] != '$') //if the message is empty or is not an NMEA message
+                    try
                     {
-                        continue;
-                    }
+                        raw = new string(Incoming.TakeWhile((x) => x != '\n').ToArray()) + "\n"; //fetch message
+                        Incoming = Incoming.Remove(0, raw.Length); //remove fetched message
+                        raw = raw.TrimEnd("\r\n".ToCharArray());
 
-                    int starIndex = raw.IndexOf('*');
-                    if (starIndex == -1)
-                        continue;   //the char * was not found
-                    byte checksum_ref;
-                    if (!byte.TryParse(raw.Substring(starIndex + 1, 2), System.Globalization.NumberStyles.HexNumber, null, out checksum_ref))
-                        continue;
+                        if (raw.Length == 0 || raw[0] != '$') //if the message is empty or is not an NMEA message
+                        {
+                            continue;
+                        }
 
-                    message = raw.Substring(1, starIndex - 1);
-                    byte checksum = 0;
-                    for (int i = 0; i < message.Length; i++)
-                    {
-                        checksum ^= (byte)message[i];
-                    }
-                    if (checksum != checksum_ref)
-                        continue;
+                        int starIndex = raw.IndexOf('*');
+                        if (starIndex == -1 || raw.Length != (starIndex + 3) || starIndex < 2)
+                            continue;   //the char * was not found
+                        byte checksum_ref;
+                        string cheksumStr = raw.Substring(starIndex + 1);
+                        if (cheksumStr.Length != 2 || !byte.TryParse(cheksumStr, System.Globalization.NumberStyles.HexNumber, null, out checksum_ref))
+                            continue;
 
-                    string[] tokens = message.Split(',');
+                        message = raw.Substring(1, starIndex - 1);
+                        byte checksum = 0;
+                        for (int i = 0; i < message.Length; i++)
+                        {
+                            checksum ^= (byte)message[i];
+                        }
+                        if (checksum != checksum_ref)
+                            continue;
 
-                    if (tokens.Length == 0)
-                        continue;
+                        string[] tokens = message.Split(',');
 
-                    if (tokens[0] == "GPGSV")
-                    {
-                        GpgsvRaw += ((GpgsvRaw == "") ? ("") : ("\r\n")) + raw;
-                        Gpgsv_count++;
-                    }
-                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
-                    {
-                        Gpgsv_count = 0;
-                        Gpgsv_errCount = 0;
-                        Gpgsv_sat = new List<SatelliteVehicle>();
-                        GpgsvRaw = "";
-                    }
+                        if (tokens.Length == 0)
+                            continue;
 
-                    if (tokens[0] == "GLGSV")
-                    {
-                        GlgsvRaw += ((GlgsvRaw == "") ? ("") : ("\r\n")) + raw;
-                        Glgsv_count++;
-                    }
-                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
-                    {
-                        Glgsv_count = 0;
-                        Glgsv_errCount = 0;
-                        Glgsv_sat = new List<SatelliteVehicle>();
-                        GlgsvRaw = "";
-                    }
+                        if (tokens[0] == "GPGSV")
+                        {
+                            GpgsvRaw += ((GpgsvRaw == "") ? ("") : ("\r\n")) + raw;
+                            Gpgsv_count++;
+                        }
+                        else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
+                        {
+                            Gpgsv_count = 0;
+                            Gpgsv_errCount = 0;
+                            Gpgsv_sat = new List<SatelliteVehicle>();
+                            GpgsvRaw = "";
+                        }
 
-                    if (tokens[0] == "GAGSV")
-                    {
-                        GagsvRaw += ((GagsvRaw == "") ? ("") : ("\r\n")) + raw;
-                        Gagsv_count++;
-                    }
-                    else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
-                    {
-                        Gagsv_count = 0;
-                        Gagsv_errCount = 0;
-                        Gagsv_sat = new List<SatelliteVehicle>();
-                        GagsvRaw = "";
-                    }
+                        if (tokens[0] == "GLGSV")
+                        {
+                            GlgsvRaw += ((GlgsvRaw == "") ? ("") : ("\r\n")) + raw;
+                            Glgsv_count++;
+                        }
+                        else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
+                        {
+                            Glgsv_count = 0;
+                            Glgsv_errCount = 0;
+                            Glgsv_sat = new List<SatelliteVehicle>();
+                            GlgsvRaw = "";
+                        }
 
-                    switch (tokens[0])
-                    {
-                        case "GPTXT":
-                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gptxt(raw)));
-                            break;
-                        case "GNTXT":
-                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gntxt(raw)));
-                            break;
-                        case "GNZDA":
-                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnzda(raw)));
-                            break;
+                        if (tokens[0] == "GAGSV")
+                        {
+                            GagsvRaw += ((GagsvRaw == "") ? ("") : ("\r\n")) + raw;
+                            Gagsv_count++;
+                        }
+                        else if (tokens[0][0] == 'G' && (tokens[0][1] == 'P' || tokens[0][1] == 'L' || tokens[0][1] == 'N' || tokens[0][1] == 'A')) //if real NMEA message
+                        {
+                            Gagsv_count = 0;
+                            Gagsv_errCount = 0;
+                            Gagsv_sat = new List<SatelliteVehicle>();
+                            GagsvRaw = "";
+                        }
 
-                        case "GPRMC":
-                            {
-                                if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
-                                    break;
+                        switch (tokens[0])
+                        {
+                            case "GPTXT":
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gptxt(raw)));
+                                break;
+                            case "GNTXT":
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gntxt(raw)));
+                                break;
+                            case "GNZDA":
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnzda(raw)));
+                                break;
 
-                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
-
-
-                                DateTime dateTime;
-                                try
+                            case "GPRMC":
                                 {
-                                    if (tokens[1] != "" && tokens[9] != "")
+                                    if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
+                                        break;
+
+                                    bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+
+                                    DateTime dateTime;
+                                    try
                                     {
-                                        if (v4)
+                                        if (tokens[1] != "" && tokens[9] != "")
                                         {
-                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            if (v4)
+                                            {
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            }
+                                            else
+                                            {
+                                                if (tokens[1].Length == 10)
+                                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                                else
+                                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            }
                                         }
                                         else
+                                        {
+                                            dateTime = DateTime.MinValue;
+                                        }
+                                    }
+                                    catch (Exception el)
+                                    {
+                                        throw el;
+                                    }
+
+                                    bool active;
+                                    if (tokens[2] == "A")
+                                        active = true;
+                                    else if (tokens[2] == "V")
+                                        active = false;
+                                    else
+                                        throw new Exception("GPRMC: active");
+
+                                    double latitude, lat_min, lat_sec;
+                                    if (tokens[3].Length >= 3 && double.TryParse(tokens[3].Substring(0, 2), out lat_min) && double.TryParse(tokens[3].Substring(2), out lat_sec))
+                                        latitude = (lat_min + (lat_sec / 60)) * (tokens[4] == "N" ? 1 : -1);
+                                    else
+                                        latitude = double.NaN;
+
+                                    double longitude, lon_min, lon_sec;
+                                    if (tokens[5].Length >= 4 && double.TryParse(tokens[5].Substring(0, 3), out lon_min) && double.TryParse(tokens[5].Substring(3), out lon_sec))
+                                        longitude = (lon_min + (lon_sec / 60)) * (tokens[6] == "E" ? 1 : -1);
+                                    else
+                                        longitude = double.NaN;
+
+                                    double speed;
+                                    if (!double.TryParse(tokens[7], out speed))
+                                        speed = double.NaN;
+
+                                    double course;
+                                    if (!double.TryParse(tokens[8], out course))
+                                        course = double.NaN;
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gprmc(raw, dateTime, active, latitude, longitude, speed, course)));
+                                }
+                                break;
+
+                            case "GNRMC":
+                                {
+                                    if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
+                                        break;
+
+                                    bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+                                    DateTime dateTime;
+                                    try
+                                    {
+                                        if (tokens[1] != "" && tokens[9] != "")
+                                        {
+                                            if (v4)
+                                            {
+                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            }
+                                            else
+                                            {
+                                                if (tokens[1].Length == 10)
+                                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                                else
+                                                    dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            dateTime = DateTime.MinValue;
+                                        }
+                                    }
+                                    catch (Exception el)
+                                    {
+                                        throw el;
+                                    }
+
+                                    bool active;
+                                    if (tokens[2] == "A")
+                                        active = true;
+                                    else if (tokens[2] == "V")
+                                        active = false;
+                                    else
+                                        throw new Exception("GNRMC: active");
+
+                                    double latitude, lat_min, lat_sec;
+                                    if (tokens[3].Length >= 3 && double.TryParse(tokens[3].Substring(0, 2), out lat_min) && double.TryParse(tokens[3].Substring(2), out lat_sec))
+                                        latitude = (lat_min + (lat_sec / 60)) * (tokens[4] == "N" ? 1 : -1);
+                                    else
+                                        latitude = double.NaN;
+
+                                    double longitude, lon_min, lon_sec;
+                                    if (tokens[5].Length >= 4 && double.TryParse(tokens[5].Substring(0, 3), out lon_min) && double.TryParse(tokens[5].Substring(3), out lon_sec))
+                                        longitude = (lon_min + (lon_sec / 60)) * (tokens[6] == "E" ? 1 : -1);
+                                    else
+                                        longitude = double.NaN;
+
+                                    double speed;
+                                    if (!double.TryParse(tokens[7], out speed))
+                                        speed = double.NaN;
+
+                                    double course;
+                                    if (!double.TryParse(tokens[8], out course))
+                                        course = double.NaN;
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnrmc(raw, dateTime, active, latitude, longitude, speed, course)));
+                                }
+                                break;
+
+                            case "GPGGA":
+                                {
+                                    if (tokens.Length != 15)
+                                        break;
+                                    FixQualityEnum quality;
+                                    int q_vessel;
+                                    try
+                                    {
+                                        q_vessel = Convert.ToInt32(tokens[6]);
+                                        if (q_vessel > 8 || q_vessel < 0)
+                                            throw new Exception("GPGGA:quality");
+                                        quality = (FixQualityEnum)q_vessel;
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    int numberOfSatellites;
+                                    try
+                                    {
+                                        numberOfSatellites = Convert.ToInt32(tokens[7]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double altitude;
+                                    if (!double.TryParse(tokens[9], out altitude))
+                                        altitude = double.NaN;
+
+                                    TimeSpan timeSinceLastDgpsUpdate;
+                                    double time;
+                                    if (double.TryParse(tokens[13], out time))
+                                        timeSinceLastDgpsUpdate = new TimeSpan(0, 0, 0, (int)time, (int)(time - Math.Floor(time)));
+                                    else
+                                        timeSinceLastDgpsUpdate = TimeSpan.MaxValue;
+
+
+                                    int dgpsStationId;
+                                    if (!int.TryParse(tokens[14], out dgpsStationId))
+                                        dgpsStationId = -1;
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
+                                }
+                                break;
+
+                            case "GNGGA":
+                                {
+                                    if (tokens.Length != 15)
+                                        break;
+                                    FixQualityEnum quality;
+                                    int q_vessel;
+                                    try
+                                    {
+                                        q_vessel = Convert.ToInt32(tokens[6]);
+                                        if (q_vessel > 8 || q_vessel < 0)
+                                            throw new Exception("GNGGA:quality");
+                                        quality = (FixQualityEnum)q_vessel;
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    int numberOfSatellites;
+                                    try
+                                    {
+                                        numberOfSatellites = Convert.ToInt32(tokens[7]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double altitude;
+                                    if (!double.TryParse(tokens[9], out altitude))
+                                        altitude = double.NaN;
+
+                                    TimeSpan timeSinceLastDgpsUpdate;
+                                    double time;
+                                    if (double.TryParse(tokens[13], out time))
+                                        timeSinceLastDgpsUpdate = new TimeSpan(0, 0, 0, (int)time, (int)(time - Math.Floor(time)));
+                                    else
+                                        timeSinceLastDgpsUpdate = TimeSpan.MaxValue;
+
+
+                                    int dgpsStationId;
+                                    if (!int.TryParse(tokens[14], out dgpsStationId))
+                                        dgpsStationId = -1;
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
+                                }
+                                break;
+
+                            case "GNGSA":
+                                {
+                                    if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
+                                        break;
+
+                                    Mode fixMode;
+                                    int f_vessel;
+                                    try
+                                    {
+                                        f_vessel = Convert.ToInt32(tokens[2]);
+                                        if (f_vessel > 3 || f_vessel < 1)
+                                            throw new Exception("GNGSA:FixMode");
+                                        fixMode = (Mode)f_vessel;
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double hdop;
+                                    if (!double.TryParse(tokens[16], out hdop))
+                                        hdop = double.NaN;
+
+                                    double vdop;
+                                    if (!double.TryParse(tokens[17], out vdop))
+                                        vdop = double.NaN;
+
+                                    double pdop;
+                                    if (!double.TryParse(tokens[15], out pdop))
+                                        pdop = double.NaN;
+
+                                    List<int> sVs = new List<int>();
+                                    for (int i = 3; (i <= 14) && (tokens[i] != ""); i++)
+                                    {
+                                        try
+                                        {
+                                            sVs.Add(Convert.ToInt32(tokens[i]));
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngsa(raw, fixMode, hdop, vdop, pdop, sVs)));
+                                }
+                                break;
+
+                            case "GPGSA":
+                                {
+                                    if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
+                                        break;
+
+                                    Mode fixMode;
+                                    int f_vessel;
+                                    try
+                                    {
+                                        f_vessel = Convert.ToInt32(tokens[2]);
+                                        if (f_vessel > 3 || f_vessel < 1)
+                                            throw new Exception("GPGSA:FixMode");
+                                        fixMode = (Mode)f_vessel;
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double hdop;
+                                    if (!double.TryParse(tokens[16], out hdop))
+                                        hdop = double.NaN;
+
+                                    double vdop;
+                                    if (!double.TryParse(tokens[17], out vdop))
+                                        vdop = double.NaN;
+
+                                    double pdop;
+                                    if (!double.TryParse(tokens[15], out pdop))
+                                        pdop = double.NaN;
+
+                                    List<int> sVs = new List<int>();
+                                    for (int i = 3; (i <= 14) && (tokens[i] != ""); i++)
+                                    {
+                                        try
+                                        {
+                                            sVs.Add(Convert.ToInt32(tokens[i]));
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsa(raw, fixMode, hdop, vdop, pdop, sVs)));
+                                }
+                                break;
+
+                            case "GPGSV":
+                                {
+                                    if (tokens.Length < 4)
+                                        break;
+
+                                    if (tokens.Length % 4 == 1)
+                                        tokens = tokens.Take(tokens.Length - 1).ToArray();
+
+                                    int seqNum;
+                                    try
+                                    {
+                                        seqNum = Convert.ToInt32(tokens[2]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                    if (seqNum != Gpgsv_count)
+                                    {
+                                        break;
+                                    }
+
+                                    int totalNum;
+                                    try
+                                    {
+                                        totalNum = Convert.ToInt32(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    for (int i = 4; i < tokens.Length; i += 4)
+                                    {
+                                        try
+                                        {
+                                            if (tokens[i] == "")
+                                            {
+                                                if (tokens[i + 3] != "")
+                                                {
+                                                    Gpgsv_errCount++;
+                                                }
+                                                continue;
+                                            }
+
+                                            Gpgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+
+                                    if (seqNum == totalNum)
+                                    {
+                                        int sVsInView;
+                                        try
+                                        {
+                                            sVsInView = Convert.ToInt32(tokens[3]) - Gpgsv_errCount;
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                        MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsv(GpgsvRaw, sVsInView, Gpgsv_sat)));
+                                        Gpgsv_sat = new List<SatelliteVehicle>();
+                                    }
+                                }
+                                break;
+
+                            case "GLGSV":
+                                {
+                                    if (tokens.Length < 4)
+                                        break;
+
+                                    if (tokens.Length % 4 == 1)
+                                        tokens = tokens.Take(tokens.Length - 1).ToArray();
+
+
+                                    int seqNum;
+                                    try
+                                    {
+                                        seqNum = Convert.ToInt32(tokens[2]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                    if (seqNum != Glgsv_count)
+                                    {
+                                        break;
+                                    }
+
+                                    int totalNum;
+                                    try
+                                    {
+                                        totalNum = Convert.ToInt32(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    for (int i = 4; i < tokens.Length; i += 4)
+                                    {
+                                        try
+                                        {
+                                            if (tokens[i] == "")
+                                            {
+                                                if (tokens[i + 3] != "")
+                                                {
+                                                    Glgsv_errCount++;
+                                                }
+                                                continue;
+                                            }
+
+                                            Glgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+
+                                    if (seqNum == totalNum)
+                                    {
+                                        int sVsInView;
+                                        try
+                                        {
+                                            sVsInView = Convert.ToInt32(tokens[3]) - Glgsv_errCount;
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                        MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Glgsv(GlgsvRaw, sVsInView, Glgsv_sat)));
+                                        Glgsv_sat = new List<SatelliteVehicle>();
+                                    }
+                                }
+                                break;
+
+                            case "GAGSV": //Galileo
+                                {
+                                    if (tokens.Length < 4)
+                                        break;
+
+                                    if (tokens.Length % 4 == 1)
+                                        tokens = tokens.Take(tokens.Length - 1).ToArray();
+
+                                    int seqNum;
+                                    try
+                                    {
+                                        seqNum = Convert.ToInt32(tokens[2]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+                                    if (seqNum != Gagsv_count)
+                                    {
+                                        break;
+                                    }
+
+                                    int totalNum;
+                                    try
+                                    {
+                                        totalNum = Convert.ToInt32(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    for (int i = 4; i < tokens.Length; i += 4)
+                                    {
+                                        try
+                                        {
+                                            if (tokens[i] == "")
+                                            {
+                                                if (tokens[i + 3] != "")
+                                                {
+                                                    Gagsv_errCount++;
+                                                }
+                                                continue;
+                                            }
+
+                                            Gagsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+
+                                    if (seqNum == totalNum)
+                                    {
+                                        int sVsInView;
+                                        try
+                                        {
+                                            sVsInView = Convert.ToInt32(tokens[3]) - Gagsv_errCount;
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                        MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gagsv(GagsvRaw, sVsInView, Gagsv_sat)));
+                                        Gagsv_sat = new List<SatelliteVehicle>();
+                                    }
+                                }
+                                break;
+
+                            case "REFCHECK":
+                                {
+                                    if (tokens.Length != 10)
+                                        break;
+
+                                    PpsStatus status;
+                                    switch (tokens[9])
+                                    {
+                                        case "OK":
+                                            status = PpsStatus.OK;
+                                            break;
+
+                                        case "???":
+                                            status = PpsStatus.notPossible;
+                                            break;
+
+                                        case "GLITCH":
+                                            status = PpsStatus.glitch;
+                                            break;
+
+                                        case "OLD":
+                                            status = PpsStatus.old;
+                                            break;
+
+                                        case "CHECK_MISSING":
+                                            status = PpsStatus.ppsMissing;
+                                            break;
+
+                                        case "REF_MISSING":
+                                            status = PpsStatus.refMissing;
+                                            break;
+
+                                        default:
+                                            status = PpsStatus.unexpected;
+                                            break;
+                                    }
+
+                                    double softwareDelay;
+                                    try
+                                    {
+                                        softwareDelay = Convert.ToDouble(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double skew;
+                                    try
+                                    {
+                                        skew = Convert.ToDouble(tokens[3]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    Int64 absTime_ref;
+                                    try
+                                    {
+                                        if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing || status == PpsStatus.refMissing)
+                                        {
+                                            absTime_ref = -1;
+                                        }
+                                        else
+                                        {
+                                            absTime_ref = Convert.ToInt64(tokens[5]);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    Int64 absTime_check;
+                                    try
+                                    {
+                                        if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
+                                        {
+                                            absTime_check = -1;
+                                        }
+                                        else
+                                        {
+                                            absTime_check = Convert.ToInt64(tokens[7]);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Refcheck(raw, softwareDelay, skew, absTime_ref, absTime_check, status)));
+                                }
+                                break;
+
+                            case "REFTIME":
+                                {
+                                    if (tokens.Length != 3)
+                                        break;
+
+                                    Int64 absTime;
+                                    try
+                                    {
+                                        absTime = Convert.ToInt64(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Reftime(raw, absTime)));
+                                }
+                                break;
+
+                            case "EXTRAREF":
+                                {
+                                    if (tokens.Length != 2)
+                                        break;
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Extraref(raw, tokens[1])));
+                                }
+                                break;
+
+                            case "SKEW":
+                                {
+                                    if (tokens.Length != 8)
+                                        break;
+
+                                    PpsStatus status;
+                                    switch (tokens[7])
+                                    {
+                                        case "OK":
+                                            status = PpsStatus.OK;
+                                            break;
+
+                                        case "???":
+                                            status = PpsStatus.notPossible;
+                                            break;
+
+                                        case "GLITCH":
+                                            status = PpsStatus.glitch;
+                                            break;
+
+                                        case "OLD":
+                                            status = PpsStatus.old;
+                                            break;
+
+                                        case "PPS_MISSING":
+                                            status = PpsStatus.ppsMissing;
+                                            break;
+
+                                        case "REF_MISSING":
+                                            status = PpsStatus.refMissing;
+                                            break;
+
+                                        default:
+                                            status = PpsStatus.unexpected;
+                                            break;
+                                    }
+
+                                    double packetDelay;
+                                    try
+                                    {
+                                        packetDelay = Convert.ToDouble(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double skew;
+                                    try
+                                    {
+                                        skew = Convert.ToDouble(tokens[3]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    Int64 absTime;
+                                    try
+                                    {
+                                        if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
+                                        {
+                                            absTime = -1;
+                                        }
+                                        else
+                                        {
+                                            absTime = Convert.ToInt64(tokens[5]);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Skew(raw, packetDelay, skew, absTime, status)));
+                                }
+                                break;
+
+                            case "SENDAT":
+                                {
+                                    if (tokens.Length != 16)
+                                        break;
+
+                                    SenDataStatus status;
+                                    switch (tokens[15])
+                                    {
+                                        case "OK":
+                                            status = SenDataStatus.OK;
+                                            break;
+
+                                        case "OLD":
+                                            status = SenDataStatus.old;
+                                            break;
+
+                                        default:
+                                            status = SenDataStatus.invalid;
+                                            break;
+                                    }
+
+                                    double temperature_bmp180;
+                                    try
+                                    {
+                                        temperature_bmp180 = Convert.ToDouble(tokens[1]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double pressure;
+                                    try
+                                    {
+                                        pressure = Convert.ToDouble(tokens[3]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double visibleLightIntensity;
+                                    try
+                                    {
+                                        visibleLightIntensity = Convert.ToDouble(tokens[5]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double infraredLighIntensity;
+                                    try
+                                    {
+                                        infraredLighIntensity = Convert.ToDouble(tokens[7]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double temperature_sht21;
+                                    try
+                                    {
+                                        temperature_sht21 = Convert.ToDouble(tokens[9]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double relativeHumidity;
+                                    try
+                                    {
+                                        relativeHumidity = Convert.ToDouble(tokens[11]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double sampleAge;
+                                    try
+                                    {
+                                        sampleAge = Convert.ToDouble(tokens[13]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180, pressure, visibleLightIntensity, infraredLighIntensity, temperature_sht21, relativeHumidity, sampleAge, status)));
+                                }
+                                break;
+
+                            case "GPINF":
+                                {
+                                    if (tokens.Length != 6)
+                                        break;
+
+                                    bool OK = true;
+
+                                    double delay = double.NaN;
+                                    try
+                                    {
+                                        delay = Convert.ToDouble(tokens[1].Substring("DELAY=".Length));
+                                    }
+                                    catch
+                                    {
+                                        OK = false;
+                                    }
+
+                                    double delay_A90 = double.NaN;
+                                    if (OK)
+                                        try
+                                        {
+                                            delay_A90 = Convert.ToDouble(tokens[2].Substring("A90=".Length));
+                                        }
+                                        catch
+                                        {
+                                            OK = false;
+                                        }
+
+                                    double delay_A500 = double.NaN;
+                                    if (OK)
+                                        try
+                                        {
+                                            delay_A500 = Convert.ToDouble(tokens[3].Substring("A500=".Length));
+                                        }
+                                        catch
+                                        {
+                                            OK = false;
+                                        }
+
+                                    double delay_A1000 = double.NaN;
+                                    if (OK)
+                                        try
+                                        {
+                                            delay_A1000 = Convert.ToDouble(tokens[4].Substring("A1000=".Length));
+                                        }
+                                        catch
+                                        {
+                                            OK = false;
+                                        }
+
+                                    double temperature = double.NaN;
+                                    if (OK)
+                                        try
+                                        {
+                                            temperature = Convert.ToDouble(tokens[5].Substring("TEMPERATURE=".Length));
+                                        }
+                                        catch
+                                        {
+                                            OK = false;
+                                        }
+
+                                    if (OK)
+                                        MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new PpsInfo(raw, delay, delay_A90, delay_A500, delay_A1000, temperature)));
+
+                                }
+                                break;
+
+                            case "GPGNS":
+                                {
+                                    if (tokens.Length != 13 && tokens.Length != 14)
+                                        break;
+
+                                    bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+                                    DateTime time;
+                                    try
+                                    {
+                                        if (tokens[1] != "")
                                         {
                                             if (tokens[1].Length == 10)
-                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                                time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
                                             else
-                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                                time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
+                                        }
+                                        else
+                                        {
+                                            time = DateTime.MinValue;
+                                        }
+                                    }
+                                    catch (Exception el)
+                                    {
+                                        throw el;
+                                    }
+
+                                    double latitude, lat_min, lat_sec;
+                                    if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
+                                        latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
+                                    else
+                                        latitude = double.NaN;
+
+                                    double longitude, lon_min, lon_sec;
+                                    if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
+                                        longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
+                                    else
+                                        longitude = double.NaN;
+
+                                    PosMode[] posMode = new PosMode[3];
+
+                                    for (int i = 0; i < 3; i++)
+                                    {
+                                        if (i < tokens[6].Length)
+                                        {
+                                            switch (tokens[6][i])
+                                            {
+                                                case 'N':
+                                                    posMode[i] = PosMode.no_fix;
+                                                    break;
+                                                case 'E':
+                                                    posMode[i] = PosMode.estimated;
+                                                    break;
+                                                case 'A':
+                                                    posMode[i] = PosMode.autonomous;
+                                                    break;
+                                                case 'D':
+                                                    posMode[i] = PosMode.differential;
+                                                    break;
+                                                case 'F':
+                                                    posMode[i] = PosMode.RTK_float;
+                                                    break;
+                                                case 'R':
+                                                    posMode[i] = PosMode.RTK_fixed;
+                                                    break;
+                                                default:
+                                                    posMode[i] = PosMode.notApplicable;
+                                                    break;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            posMode[i] = PosMode.notApplicable;
+                                        }
+                                    }
+
+                                    int numberOfUsedSatellites;
+                                    try
+                                    {
+                                        numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double HDOP;
+                                    try
+                                    {
+                                        HDOP = Convert.ToDouble(tokens[8]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double altitude;
+                                    try
+                                    {
+                                        altitude = Convert.ToDouble(tokens[9]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double geoidSep;
+                                    try
+                                    {
+                                        geoidSep = Convert.ToDouble(tokens[10]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double dgpsAge;
+                                    if (tokens[11] != "")
+                                    {
+                                        try
+                                        {
+                                            dgpsAge = Convert.ToDouble(tokens[11]);
+                                        }
+                                        catch
+                                        {
+                                            throw;
                                         }
                                     }
                                     else
                                     {
-                                        dateTime = DateTime.MinValue;
+                                        dgpsAge = double.NaN;
                                     }
-                                }
-                                catch (Exception el)
-                                {
-                                    throw el;
-                                }
 
-                                bool active;
-                                if (tokens[2] == "A")
-                                    active = true;
-                                else if (tokens[2] == "V")
-                                    active = false;
-                                else
-                                    throw new Exception("GPRMC: active");
-
-                                double latitude, lat_min, lat_sec;
-                                if (tokens[3].Length >= 3 && double.TryParse(tokens[3].Substring(0, 2), out lat_min) && double.TryParse(tokens[3].Substring(2), out lat_sec))
-                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[4] == "N" ? 1 : -1);
-                                else
-                                    latitude = double.NaN;
-
-                                double longitude, lon_min, lon_sec;
-                                if (tokens[5].Length >= 4 && double.TryParse(tokens[5].Substring(0, 3), out lon_min) && double.TryParse(tokens[5].Substring(3), out lon_sec))
-                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[6] == "E" ? 1 : -1);
-                                else
-                                    longitude = double.NaN;
-
-                                double speed;
-                                if (!double.TryParse(tokens[7], out speed))
-                                    speed = double.NaN;
-
-                                double course;
-                                if (!double.TryParse(tokens[8], out course))
-                                    course = double.NaN;
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gprmc(raw, dateTime, active, latitude, longitude, speed, course)));
-                            }
-                            break;
-
-                        case "GNRMC":
-                            {
-                                if (tokens.Length != 13 && tokens.Length != 14) //14 if NMEA 4.1 and above
-                                    break;
-
-                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
-
-                                DateTime dateTime;
-                                try
-                                {
-                                    if (tokens[1] != "" && tokens[9] != "")
+                                    int dgpsId;
+                                    if (tokens[12] != "")
                                     {
-                                        if (v4)
+                                        try
                                         {
-                                            dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                            dgpsId = Convert.ToInt32(tokens[12]);
                                         }
-                                        else
+                                        catch
+                                        {
+                                            throw;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        dgpsId = -1;
+                                    }
+
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
+                                }
+                                break;
+
+                            case "GNGNS":
+                                {
+                                    if (tokens.Length != 13 && tokens.Length != 14)
+                                        break;
+
+                                    bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
+
+                                    DateTime time;
+                                    try
+                                    {
+                                        if (tokens[1] != "")
                                         {
                                             if (tokens[1].Length == 10)
-                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.fff ddMMyy", null);
+                                                time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
                                             else
-                                                dateTime = DateTime.ParseExact(tokens[1] + " " + tokens[9], "HHmmss.ff ddMMyy", null);
+                                                time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
                                         }
-                                    }
-                                    else
-                                    {
-                                        dateTime = DateTime.MinValue;
-                                    }
-                                }
-                                catch (Exception el)
-                                {
-                                    throw el;
-                                }
-
-                                bool active;
-                                if (tokens[2] == "A")
-                                    active = true;
-                                else if (tokens[2] == "V")
-                                    active = false;
-                                else
-                                    throw new Exception("GNRMC: active");
-
-                                double latitude, lat_min, lat_sec;
-                                if (tokens[3].Length >= 3 && double.TryParse(tokens[3].Substring(0, 2), out lat_min) && double.TryParse(tokens[3].Substring(2), out lat_sec))
-                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[4] == "N" ? 1 : -1);
-                                else
-                                    latitude = double.NaN;
-
-                                double longitude, lon_min, lon_sec;
-                                if (tokens[5].Length >= 4 && double.TryParse(tokens[5].Substring(0, 3), out lon_min) && double.TryParse(tokens[5].Substring(3), out lon_sec))
-                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[6] == "E" ? 1 : -1);
-                                else
-                                    longitude = double.NaN;
-
-                                double speed;
-                                if (!double.TryParse(tokens[7], out speed))
-                                    speed = double.NaN;
-
-                                double course;
-                                if (!double.TryParse(tokens[8], out course))
-                                    course = double.NaN;
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gnrmc(raw, dateTime, active, latitude, longitude, speed, course)));
-                            }
-                            break;
-
-                        case "GPGGA":
-                            {
-                                if (tokens.Length != 15)
-                                    break;
-                                FixQualityEnum quality;
-                                int q_vessel;
-                                try
-                                {
-                                    q_vessel = Convert.ToInt32(tokens[6]);
-                                    if (q_vessel > 8 || q_vessel < 0)
-                                        throw new Exception("GPGGA:quality");
-                                    quality = (FixQualityEnum)q_vessel;
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                int numberOfSatellites;
-                                try
-                                {
-                                    numberOfSatellites = Convert.ToInt32(tokens[7]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double altitude;
-                                if (!double.TryParse(tokens[9], out altitude))
-                                    altitude = double.NaN;
-
-                                TimeSpan timeSinceLastDgpsUpdate;
-                                double time;
-                                if (double.TryParse(tokens[13], out time))
-                                    timeSinceLastDgpsUpdate = new TimeSpan(0, 0, 0, (int)time, (int)(time - Math.Floor(time)));
-                                else
-                                    timeSinceLastDgpsUpdate = TimeSpan.MaxValue;
-
-
-                                int dgpsStationId;
-                                if (!int.TryParse(tokens[14], out dgpsStationId))
-                                    dgpsStationId = -1;
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
-                            }
-                            break;
-
-                        case "GNGGA":
-                            {
-                                if (tokens.Length != 15)
-                                    break;
-                                FixQualityEnum quality;
-                                int q_vessel;
-                                try
-                                {
-                                    q_vessel = Convert.ToInt32(tokens[6]);
-                                    if (q_vessel > 8 || q_vessel < 0)
-                                        throw new Exception("GNGGA:quality");
-                                    quality = (FixQualityEnum)q_vessel;
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                int numberOfSatellites;
-                                try
-                                {
-                                    numberOfSatellites = Convert.ToInt32(tokens[7]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double altitude;
-                                if (!double.TryParse(tokens[9], out altitude))
-                                    altitude = double.NaN;
-
-                                TimeSpan timeSinceLastDgpsUpdate;
-                                double time;
-                                if (double.TryParse(tokens[13], out time))
-                                    timeSinceLastDgpsUpdate = new TimeSpan(0, 0, 0, (int)time, (int)(time - Math.Floor(time)));
-                                else
-                                    timeSinceLastDgpsUpdate = TimeSpan.MaxValue;
-
-
-                                int dgpsStationId;
-                                if (!int.TryParse(tokens[14], out dgpsStationId))
-                                    dgpsStationId = -1;
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngga(raw, quality, numberOfSatellites, altitude, timeSinceLastDgpsUpdate, dgpsStationId)));
-                            }
-                            break;
-
-                        case "GNGSA":
-                            {
-                                if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
-                                    break;
-
-                                Mode fixMode;
-                                int f_vessel;
-                                try
-                                {
-                                    f_vessel = Convert.ToInt32(tokens[2]);
-                                    if (f_vessel > 3 || f_vessel < 1)
-                                        throw new Exception("GNGSA:FixMode");
-                                    fixMode = (Mode)f_vessel;
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double hdop;
-                                if (!double.TryParse(tokens[16], out hdop))
-                                    hdop = double.NaN;
-
-                                double vdop;
-                                if (!double.TryParse(tokens[17], out vdop))
-                                    vdop = double.NaN;
-
-                                double pdop;
-                                if (!double.TryParse(tokens[15], out pdop))
-                                    pdop = double.NaN;
-
-                                List<int> sVs = new List<int>();
-                                for (int i = 3; (i <= 14) && (tokens[i] != ""); i++)
-                                {
-                                    try
-                                    {
-                                        sVs.Add(Convert.ToInt32(tokens[i]));
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngsa(raw, fixMode, hdop, vdop, pdop, sVs)));
-                            }
-                            break;
-
-                        case "GPGSA":
-                            {
-                                if (tokens.Length != 18 && tokens.Length != 19) //19 if NMEA 4.1 or above
-                                    break;
-
-                                Mode fixMode;
-                                int f_vessel;
-                                try
-                                {
-                                    f_vessel = Convert.ToInt32(tokens[2]);
-                                    if (f_vessel > 3 || f_vessel < 1)
-                                        throw new Exception("GPGSA:FixMode");
-                                    fixMode = (Mode)f_vessel;
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double hdop;
-                                if (!double.TryParse(tokens[16], out hdop))
-                                    hdop = double.NaN;
-
-                                double vdop;
-                                if (!double.TryParse(tokens[17], out vdop))
-                                    vdop = double.NaN;
-
-                                double pdop;
-                                if (!double.TryParse(tokens[15], out pdop))
-                                    pdop = double.NaN;
-
-                                List<int> sVs = new List<int>();
-                                for (int i = 3; (i <= 14) && (tokens[i] != ""); i++)
-                                {
-                                    try
-                                    {
-                                        sVs.Add(Convert.ToInt32(tokens[i]));
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsa(raw, fixMode, hdop, vdop, pdop, sVs)));
-                            }
-                            break;
-
-                        case "GPGSV":
-                            {
-                                if (tokens.Length < 4)
-                                    break;
-
-                                if (tokens.Length % 4 == 1)
-                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
-
-                                int seqNum;
-                                try
-                                {
-                                    seqNum = Convert.ToInt32(tokens[2]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-                                if (seqNum != Gpgsv_count)
-                                {
-                                    break;
-                                }
-
-                                int totalNum;
-                                try
-                                {
-                                    totalNum = Convert.ToInt32(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                for (int i = 4; i < tokens.Length; i += 4)
-                                {
-                                    try
-                                    {
-                                        if (tokens[i] == "")
-                                        {
-                                            if (tokens[i + 3] != "")
-                                            {
-                                                Gpgsv_errCount++;
-                                            }
-                                            continue;
-                                        }
-
-                                        Gpgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-
-                                if (seqNum == totalNum)
-                                {
-                                    int sVsInView;
-                                    try
-                                    {
-                                        sVsInView = Convert.ToInt32(tokens[3]) - Gpgsv_errCount;
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgsv(GpgsvRaw, sVsInView, Gpgsv_sat)));
-                                    Gpgsv_sat = new List<SatelliteVehicle>();
-                                }
-                            }
-                            break;
-
-                        case "GLGSV":
-                            {
-                                if (tokens.Length < 4)
-                                    break;
-
-                                if (tokens.Length % 4 == 1)
-                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
-
-
-                                int seqNum;
-                                try
-                                {
-                                    seqNum = Convert.ToInt32(tokens[2]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-                                if (seqNum != Glgsv_count)
-                                {
-                                    break;
-                                }
-
-                                int totalNum;
-                                try
-                                {
-                                    totalNum = Convert.ToInt32(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                for (int i = 4; i < tokens.Length; i += 4)
-                                {
-                                    try
-                                    {
-                                        if (tokens[i] == "")
-                                        {
-                                            if (tokens[i + 3] != "")
-                                            {
-                                                Glgsv_errCount++;
-                                            }
-                                            continue;
-                                        }
-
-                                        Glgsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-
-                                if (seqNum == totalNum)
-                                {
-                                    int sVsInView;
-                                    try
-                                    {
-                                        sVsInView = Convert.ToInt32(tokens[3]) - Glgsv_errCount;
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Glgsv(GlgsvRaw, sVsInView, Glgsv_sat)));
-                                    Glgsv_sat = new List<SatelliteVehicle>();
-                                }
-                            }
-                            break;
-
-                        case "GAGSV": //Galileo
-                            {
-                                if (tokens.Length < 4)
-                                    break;
-
-                                if (tokens.Length % 4 == 1)
-                                    tokens = tokens.Take(tokens.Length - 1).ToArray();
-
-                                int seqNum;
-                                try
-                                {
-                                    seqNum = Convert.ToInt32(tokens[2]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-                                if (seqNum != Gagsv_count)
-                                {
-                                    break;
-                                }
-
-                                int totalNum;
-                                try
-                                {
-                                    totalNum = Convert.ToInt32(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                for (int i = 4; i < tokens.Length; i += 4)
-                                {
-                                    try
-                                    {
-                                        if (tokens[i] == "")
-                                        {
-                                            if (tokens[i + 3] != "")
-                                            {
-                                                Gagsv_errCount++;
-                                            }
-                                            continue;
-                                        }
-
-                                        Gagsv_sat.Add(new SatelliteVehicle(Convert.ToInt32(tokens[i]), (tokens[i + 1] == "") ? double.NaN : Convert.ToDouble(tokens[i + 1]), (tokens[i + 2] == "") ? double.NaN : Convert.ToDouble(tokens[i + 2]), (tokens[i + 3] == "") ? 0 : Convert.ToInt32(tokens[i + 3])));
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-
-                                if (seqNum == totalNum)
-                                {
-                                    int sVsInView;
-                                    try
-                                    {
-                                        sVsInView = Convert.ToInt32(tokens[3]) - Gagsv_errCount;
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gagsv(GagsvRaw, sVsInView, Gagsv_sat)));
-                                    Gagsv_sat = new List<SatelliteVehicle>();
-                                }
-                            }
-                            break;
-
-                        case "REFCHECK":
-                            {
-                                if (tokens.Length != 10)
-                                    break;
-
-                                PpsStatus status;
-                                switch (tokens[9])
-                                {
-                                    case "OK":
-                                        status = PpsStatus.OK;
-                                        break;
-
-                                    case "???":
-                                        status = PpsStatus.notPossible;
-                                        break;
-
-                                    case "GLITCH":
-                                        status = PpsStatus.glitch;
-                                        break;
-
-                                    case "OLD":
-                                        status = PpsStatus.old;
-                                        break;
-
-                                    case "CHECK_MISSING":
-                                        status = PpsStatus.ppsMissing;
-                                        break;
-
-                                    case "REF_MISSING":
-                                        status = PpsStatus.refMissing;
-                                        break;
-
-                                    default:
-                                        status = PpsStatus.unexpected;
-                                        break;
-                                }
-
-                                double softwareDelay;
-                                try
-                                {
-                                    softwareDelay = Convert.ToDouble(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double skew;
-                                try
-                                {
-                                    skew = Convert.ToDouble(tokens[3]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                Int64 absTime_ref;
-                                try
-                                {
-                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing || status == PpsStatus.refMissing)
-                                    {
-                                        absTime_ref = -1;
-                                    }
-                                    else
-                                    {
-                                        absTime_ref = Convert.ToInt64(tokens[5]);
-                                    }
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                Int64 absTime_check;
-                                try
-                                {
-                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
-                                    {
-                                        absTime_check = -1;
-                                    }
-                                    else
-                                    {
-                                        absTime_check = Convert.ToInt64(tokens[7]);
-                                    }
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Refcheck(raw, softwareDelay, skew, absTime_ref, absTime_check, status)));
-                            }
-                            break;
-
-                        case "REFTIME":
-                            {
-                                if (tokens.Length != 3)
-                                    break;
-
-                                Int64 absTime;
-                                try
-                                {
-                                    absTime = Convert.ToInt64(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Reftime(raw, absTime)));
-                            }
-                            break;
-
-                        case "EXTRAREF":
-                            {
-                                if (tokens.Length != 2)
-                                    break;
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Extraref(raw, tokens[1])));
-                            }
-                            break;
-
-                        case "SKEW":
-                            {
-                                if (tokens.Length != 8)
-                                    break;
-
-                                PpsStatus status;
-                                switch (tokens[7])
-                                {
-                                    case "OK":
-                                        status = PpsStatus.OK;
-                                        break;
-
-                                    case "???":
-                                        status = PpsStatus.notPossible;
-                                        break;
-
-                                    case "GLITCH":
-                                        status = PpsStatus.glitch;
-                                        break;
-
-                                    case "OLD":
-                                        status = PpsStatus.old;
-                                        break;
-
-                                    case "PPS_MISSING":
-                                        status = PpsStatus.ppsMissing;
-                                        break;
-
-                                    case "REF_MISSING":
-                                        status = PpsStatus.refMissing;
-                                        break;
-
-                                    default:
-                                        status = PpsStatus.unexpected;
-                                        break;
-                                }
-
-                                double packetDelay;
-                                try
-                                {
-                                    packetDelay = Convert.ToDouble(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double skew;
-                                try
-                                {
-                                    skew = Convert.ToDouble(tokens[3]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                Int64 absTime;
-                                try
-                                {
-                                    if (status == PpsStatus.glitch || status == PpsStatus.ppsMissing)
-                                    {
-                                        absTime = -1;
-                                    }
-                                    else
-                                    {
-                                        absTime = Convert.ToInt64(tokens[5]);
-                                    }
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Skew(raw, packetDelay, skew, absTime, status)));
-                            }
-                            break;
-
-                        case "SENDAT":
-                            {
-                                if (tokens.Length != 16)
-                                    break;
-
-                                SenDataStatus status;
-                                switch (tokens[15])
-                                {
-                                    case "OK":
-                                        status = SenDataStatus.OK;
-                                        break;
-
-                                    case "OLD":
-                                        status = SenDataStatus.old;
-                                        break;
-
-                                    default:
-                                        status = SenDataStatus.invalid;
-                                        break;
-                                }
-
-                                double temperature_bmp180;
-                                try
-                                {
-                                    temperature_bmp180 = Convert.ToDouble(tokens[1]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double pressure;
-                                try
-                                {
-                                    pressure = Convert.ToDouble(tokens[3]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double visibleLightIntensity;
-                                try
-                                {
-                                    visibleLightIntensity = Convert.ToDouble(tokens[5]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double infraredLighIntensity;
-                                try
-                                {
-                                    infraredLighIntensity = Convert.ToDouble(tokens[7]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double temperature_sht21;
-                                try
-                                {
-                                    temperature_sht21 = Convert.ToDouble(tokens[9]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double relativeHumidity;
-                                try
-                                {
-                                    relativeHumidity = Convert.ToDouble(tokens[11]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double sampleAge;
-                                try
-                                {
-                                    sampleAge = Convert.ToDouble(tokens[13]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new SenData(raw, temperature_bmp180, pressure, visibleLightIntensity, infraredLighIntensity, temperature_sht21, relativeHumidity, sampleAge, status)));
-                            }
-                            break;
-
-                        case "GPINF":
-                            {
-                                if (tokens.Length != 6)
-                                    break;
-
-                                bool OK = true;
-
-                                double delay = double.NaN;
-                                try
-                                {
-                                    delay = Convert.ToDouble(tokens[1].Substring("DELAY=".Length));
-                                }
-                                catch
-                                {
-                                    OK = false;
-                                }
-
-                                double delay_A90 = double.NaN;
-                                if (OK)
-                                    try
-                                    {
-                                        delay_A90 = Convert.ToDouble(tokens[2].Substring("A90=".Length));
-                                    }
-                                    catch
-                                    {
-                                        OK = false;
-                                    }
-
-                                double delay_A500 = double.NaN;
-                                if (OK)
-                                    try
-                                    {
-                                        delay_A500 = Convert.ToDouble(tokens[3].Substring("A500=".Length));
-                                    }
-                                    catch
-                                    {
-                                        OK = false;
-                                    }
-
-                                double delay_A1000 = double.NaN;
-                                if (OK)
-                                    try
-                                    {
-                                        delay_A1000 = Convert.ToDouble(tokens[4].Substring("A1000=".Length));
-                                    }
-                                    catch
-                                    {
-                                        OK = false;
-                                    }
-
-                                double temperature = double.NaN;
-                                if (OK)
-                                    try
-                                    {
-                                        temperature = Convert.ToDouble(tokens[5].Substring("TEMPERATURE=".Length));
-                                    }
-                                    catch
-                                    {
-                                        OK = false;
-                                    }
-
-                                if (OK)
-                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new PpsInfo(raw, delay, delay_A90, delay_A500, delay_A1000, temperature)));
-
-                            }
-                            break;
-
-                        case "GPGNS":
-                            {
-                                if (tokens.Length != 13 && tokens.Length != 14)
-                                    break;
-
-                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
-
-                                DateTime time;
-                                try
-                                {
-                                    if (tokens[1] != "")
-                                    {
-                                        if (tokens[1].Length == 10)
-                                            time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
                                         else
-                                            time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
-                                    }
-                                    else
-                                    {
-                                        time = DateTime.MinValue;
-                                    }
-                                }
-                                catch (Exception el)
-                                {
-                                    throw el;
-                                }
-
-                                double latitude, lat_min, lat_sec;
-                                if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
-                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
-                                else
-                                    latitude = double.NaN;
-
-                                double longitude, lon_min, lon_sec;
-                                if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
-                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
-                                else
-                                    longitude = double.NaN;
-
-                                PosMode[] posMode = new PosMode[3];
-
-                                for (int i = 0; i < 3; i++)
-                                {
-                                    if (i < tokens[6].Length)
-                                    {
-                                        switch (tokens[6][i])
                                         {
-                                            case 'N':
-                                                posMode[i] = PosMode.no_fix;
-                                                break;
-                                            case 'E':
-                                                posMode[i] = PosMode.estimated;
-                                                break;
-                                            case 'A':
-                                                posMode[i] = PosMode.autonomous;
-                                                break;
-                                            case 'D':
-                                                posMode[i] = PosMode.differential;
-                                                break;
-                                            case 'F':
-                                                posMode[i] = PosMode.RTK_float;
-                                                break;
-                                            case 'R':
-                                                posMode[i] = PosMode.RTK_fixed;
-                                                break;
-                                            default:
-                                                posMode[i] = PosMode.notApplicable;
-                                                break;
+                                            time = DateTime.MinValue;
                                         }
                                     }
+                                    catch (Exception el)
+                                    {
+                                        throw el;
+                                    }
+
+                                    double latitude, lat_min, lat_sec;
+                                    if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
+                                        latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
                                     else
+                                        latitude = double.NaN;
+
+                                    double longitude, lon_min, lon_sec;
+                                    if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
+                                        longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
+                                    else
+                                        longitude = double.NaN;
+
+                                    PosMode[] posMode = new PosMode[3];
+
+                                    for (int i = 0; i < 3; i++)
                                     {
-                                        posMode[i] = PosMode.notApplicable;
-                                    }
-                                }
-
-                                int numberOfUsedSatellites;
-                                try
-                                {
-                                    numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double HDOP;
-                                try
-                                {
-                                    HDOP = Convert.ToDouble(tokens[8]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double altitude;
-                                try
-                                {
-                                    altitude = Convert.ToDouble(tokens[9]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double geoidSep;
-                                try
-                                {
-                                    geoidSep = Convert.ToDouble(tokens[10]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double dgpsAge;
-                                if (tokens[11] != "")
-                                {
-                                    try
-                                    {
-                                        dgpsAge = Convert.ToDouble(tokens[11]);
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-                                else
-                                {
-                                    dgpsAge = double.NaN;
-                                }
-
-                                int dgpsId;
-                                if (tokens[12] != "")
-                                {
-                                    try
-                                    {
-                                        dgpsId = Convert.ToInt32(tokens[12]);
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
-                                }
-                                else
-                                {
-                                    dgpsId = -1;
-                                }
-
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gpgns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
-                            }
-                            break;
-
-                        case "GNGNS":
-                            {
-                                if (tokens.Length != 13 && tokens.Length != 14)
-                                    break;
-
-                                bool v4 = tokens.Length == 14; //indicates a version 4 NMEA message
-
-                                DateTime time;
-                                try
-                                {
-                                    if (tokens[1] != "")
-                                    {
-                                        if (tokens[1].Length == 10)
-                                            time = DateTime.ParseExact(tokens[1], "HHmmss.fff", null);
+                                        if (i < tokens[6].Length)
+                                        {
+                                            switch (tokens[6][i])
+                                            {
+                                                case 'N':
+                                                    posMode[i] = PosMode.no_fix;
+                                                    break;
+                                                case 'E':
+                                                    posMode[i] = PosMode.estimated;
+                                                    break;
+                                                case 'A':
+                                                    posMode[i] = PosMode.autonomous;
+                                                    break;
+                                                case 'D':
+                                                    posMode[i] = PosMode.differential;
+                                                    break;
+                                                case 'F':
+                                                    posMode[i] = PosMode.RTK_float;
+                                                    break;
+                                                case 'R':
+                                                    posMode[i] = PosMode.RTK_fixed;
+                                                    break;
+                                                default:
+                                                    posMode[i] = PosMode.notApplicable;
+                                                    break;
+                                            }
+                                        }
                                         else
-                                            time = DateTime.ParseExact(tokens[1], "HHmmss.ff", null);
-                                    }
-                                    else
-                                    {
-                                        time = DateTime.MinValue;
-                                    }
-                                }
-                                catch (Exception el)
-                                {
-                                    throw el;
-                                }
-
-                                double latitude, lat_min, lat_sec;
-                                if (tokens[2].Length >= 3 && double.TryParse(tokens[2].Substring(0, 2), out lat_min) && double.TryParse(tokens[2].Substring(2), out lat_sec))
-                                    latitude = (lat_min + (lat_sec / 60)) * (tokens[3] == "N" ? 1 : -1);
-                                else
-                                    latitude = double.NaN;
-
-                                double longitude, lon_min, lon_sec;
-                                if (tokens[4].Length >= 4 && double.TryParse(tokens[4].Substring(0, 3), out lon_min) && double.TryParse(tokens[4].Substring(3), out lon_sec))
-                                    longitude = (lon_min + (lon_sec / 60)) * (tokens[5] == "E" ? 1 : -1);
-                                else
-                                    longitude = double.NaN;
-
-                                PosMode[] posMode = new PosMode[3];
-
-                                for (int i = 0; i < 3; i++)
-                                {
-                                    if (i < tokens[6].Length)
-                                    {
-                                        switch (tokens[6][i])
                                         {
-                                            case 'N':
-                                                posMode[i] = PosMode.no_fix;
-                                                break;
-                                            case 'E':
-                                                posMode[i] = PosMode.estimated;
-                                                break;
-                                            case 'A':
-                                                posMode[i] = PosMode.autonomous;
-                                                break;
-                                            case 'D':
-                                                posMode[i] = PosMode.differential;
-                                                break;
-                                            case 'F':
-                                                posMode[i] = PosMode.RTK_float;
-                                                break;
-                                            case 'R':
-                                                posMode[i] = PosMode.RTK_fixed;
-                                                break;
-                                            default:
-                                                posMode[i] = PosMode.notApplicable;
-                                                break;
+                                            posMode[i] = PosMode.notApplicable;
+                                        }
+                                    }
+
+                                    int numberOfUsedSatellites;
+                                    try
+                                    {
+                                        numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double HDOP;
+                                    try
+                                    {
+                                        HDOP = Convert.ToDouble(tokens[8]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double altitude;
+                                    try
+                                    {
+                                        altitude = Convert.ToDouble(tokens[9]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double geoidSep;
+                                    try
+                                    {
+                                        geoidSep = Convert.ToDouble(tokens[10]);
+                                    }
+                                    catch
+                                    {
+                                        throw;
+                                    }
+
+                                    double dgpsAge;
+                                    if (tokens[11] != "")
+                                    {
+                                        try
+                                        {
+                                            dgpsAge = Convert.ToDouble(tokens[11]);
+                                        }
+                                        catch
+                                        {
+                                            throw;
                                         }
                                     }
                                     else
                                     {
-                                        posMode[i] = PosMode.notApplicable;
+                                        dgpsAge = double.NaN;
                                     }
-                                }
 
-                                int numberOfUsedSatellites;
-                                try
-                                {
-                                    numberOfUsedSatellites = Convert.ToInt32(tokens[7]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double HDOP;
-                                try
-                                {
-                                    HDOP = Convert.ToDouble(tokens[8]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double altitude;
-                                try
-                                {
-                                    altitude = Convert.ToDouble(tokens[9]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double geoidSep;
-                                try
-                                {
-                                    geoidSep = Convert.ToDouble(tokens[10]);
-                                }
-                                catch
-                                {
-                                    throw;
-                                }
-
-                                double dgpsAge;
-                                if (tokens[11] != "")
-                                {
-                                    try
+                                    int dgpsId;
+                                    if (tokens[12] != "")
                                     {
-                                        dgpsAge = Convert.ToDouble(tokens[11]);
+                                        try
+                                        {
+                                            dgpsId = Convert.ToInt32(tokens[12]);
+                                        }
+                                        catch
+                                        {
+                                            throw;
+                                        }
                                     }
-                                    catch
+                                    else
                                     {
-                                        throw;
+                                        dgpsId = -1;
                                     }
-                                }
-                                else
-                                {
-                                    dgpsAge = double.NaN;
-                                }
 
-                                int dgpsId;
-                                if (tokens[12] != "")
-                                {
-                                    try
-                                    {
-                                        dgpsId = Convert.ToInt32(tokens[12]);
-                                    }
-                                    catch
-                                    {
-                                        throw;
-                                    }
+                                    MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
                                 }
-                                else
-                                {
-                                    dgpsId = -1;
-                                }
+                                break;
 
-                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Gngns(raw, time, latitude, longitude, posMode[0], posMode[1], posMode[2], numberOfUsedSatellites, HDOP, altitude, geoidSep, dgpsAge, dgpsId)));
-                            }
-                            break;
+                            default:
+                                MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Unknown(raw)));
+                                break;
+                        }
 
-                        default:
-                            MessageReceived?.Invoke(this, new NmeaMessageReceivedEventArgs(new Unknown(raw)));
-                            break;
                     }
-
+                    catch (Exception e)
+                    {
+                        errorLogger.LogLine(">>>{0}<<<\t({1})", e.ToString(), e.Message);
+                    }
                 }
             }
         }
@@ -2018,6 +2032,7 @@ namespace NMEA_Parser
 #if !NMEADevice_UnitTest
             logger.Close();
 #endif
+            errorLogger.Close();
         }
 
         public void ResetInputStream()
