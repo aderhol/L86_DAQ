@@ -5,7 +5,6 @@ using System.Text;
 using System.Threading.Tasks;
 using NMEA_Parser;
 using System.IO;
-using System.IO.Ports;
 using System.Device.Location;
 using System.Collections.Concurrent;
 using System.Threading;
@@ -15,6 +14,7 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 using CustumLoggers;
 using PpsCardDelivery;
+using SerialPort_Win32;
 
 namespace L86_collector
 {
@@ -40,7 +40,7 @@ namespace L86_collector
             }
         }
 
-        private const string SoftwareVersion = "V5.7";
+        private const string SoftwareVersion = "V6.0";
 
         static bool running = false;
         enum FixQuality
@@ -213,9 +213,9 @@ namespace L86_collector
                 if (int.TryParse(inputResourceLocator, out int comPortNumber))
                 {
 #if ACER_1 && DEBUG
-                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, BAUD_RATE, Parity.None, 8, StopBits.One), rawFile_direct, errFilePath, designation);
+                    port = new NmeaDevice(new ComPort(comPortNumber, BAUD_RATE, Parity.NOPARITY, 8, StopBits.ONESTOPBIT), rawFile_direct, errFilePath, designation);
 #else
-                    port = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, collectSkew ? 115200 : 9600, Parity.None, 8, StopBits.One), rawFile_direct, errFilePath, designation);
+                    port = new NmeaDevice(new ComPort(comPortNumber, collectSkew ? 115200 : 9600, Parity.NOPARITY, 8, StopBits.ONESTOPBIT), rawFile_direct, errFilePath, designation);
 #endif
                 }
                 else

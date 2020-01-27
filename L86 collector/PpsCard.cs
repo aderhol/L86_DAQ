@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.IO.Ports;
 using CustumLoggers;
 using NMEA_Parser;
+using SerialPort_Win32;
 
 namespace PpsCardDelivery
 {
@@ -28,7 +28,7 @@ namespace PpsCardDelivery
 
             if (int.TryParse(inputResourceLocator, out int comPortNumber))
             {
-                card = new NmeaDevice(new SerialPort("COM" + inputResourceLocator, 115200, Parity.None, 8, StopBits.One), rawFilePath, errFilePath, "PpsCard");
+                card = new NmeaDevice(new ComPort(comPortNumber, 115200, Parity.NOPARITY, 8, StopBits.ONESTOPBIT), rawFilePath, errFilePath, "PpsCard");
             }
             else
             {

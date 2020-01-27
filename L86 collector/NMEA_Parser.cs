@@ -6,11 +6,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.IO.Ports;
 using System.IO;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using CustumLoggers;
+using SerialPort_Win32;
 
 namespace NMEA_Parser
 {
@@ -504,7 +504,7 @@ namespace NMEA_Parser
 
     public class NmeaDevice
     {
-        private volatile SerialPort Port;
+        private volatile ComPort Port;
         public event EventHandler MessageReceived;
         private volatile string Incoming;
         private volatile ConcurrentQueue<string> IncomingQueue;
@@ -520,7 +520,7 @@ namespace NMEA_Parser
 
 
 
-        public NmeaDevice(SerialPort serialPort, string rawFilePath, string errFilePath, string name)
+        public NmeaDevice(ComPort serialPort, string rawFilePath, string errFilePath, string name)
         {
             if (File.Exists(rawFilePath))
                 throw new Exception("NmeaDevice: rawFile exists");
@@ -603,21 +603,18 @@ namespace NMEA_Parser
         ManualResetEvent collectorStopped = new ManualResetEvent(false);
         private void SerialCollectorWorker()
         {
-            Port.ReadBufferSize = 51200;
+            Port.InputBufferSize_bytes = 51200;
             Port.Open();
 
-            int contCount = 0;
             while (!isCloseRequested.IsCancellationRequested)
             {
                 Thread.Sleep(100);
-                if (Port.BytesToRead < 30 && (contCount < 5 || Port.BytesToRead == 0))
-                {
-                    contCount++;
-                    continue;
-                }
-
-                contCount = 0;
+                
                 string snippet = Port.ReadExisting();
+
+                if ("" == snippet)
+                    continue;
+
 #if !NMEADevice_UnitTest
                 logger.Log(snippet);
 #endif

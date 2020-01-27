@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using NMEA_Parser;
 using System.IO;
-using System.IO.Ports;
+using SerialPort_Win32;
 
 namespace UnitTester
 {
@@ -13,7 +13,7 @@ namespace UnitTester
     {
         static void Main(string[] args)
         {
-            NmeaDevice uut = new NmeaDevice(new SerialPort("COM7", 115200), @"C:\Users\Adam\Downloads\trash\uut_DIRECT.raw", @"C:\Users\Adam\Downloads\trash\uut.parerr", "uut");
+            NmeaDevice uut = new NmeaDevice(new ComPort(7, 115200), @"C:\Users\Adam\Downloads\trash\uut_DIRECT.raw", @"C:\Users\Adam\Downloads\trash\uut.parerr", "uut");
             uut.MessageReceived += Uut_MessageReceived;
             uut.OpenPort();
             Console.ReadLine();
